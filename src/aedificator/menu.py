@@ -3,18 +3,21 @@ import os
 import atexit
 import signal
 import sys
+import json
 from typing import Optional
 from . import console
 from .executor import Executor
+from .memory import DockerConfiguration
 
 
 class Menu:
     """Interactive menu system for project operations."""
 
-    def __init__(self, superleme_path: str, sl_phoenix_path: str, extension_path: str):
+    def __init__(self, superleme_path: str, sl_phoenix_path: str, extension_path: str, docker_configs: dict = None):
         self.superleme_path = superleme_path
         self.sl_phoenix_path = sl_phoenix_path
         self.extension_path = extension_path
+        self.docker_configs = docker_configs or {}
         self.processes = []
 
         # Register cleanup handlers
@@ -35,6 +38,7 @@ class Menu:
                         "SL Phoenix",
                         "Extensão",
                         "Executar Múltiplos",
+                        "Configurações",
                         "Sair"
                     ]
                 ).ask()
@@ -47,6 +51,8 @@ class Menu:
                     self.show_extension_menu()
                 elif choice == "Executar Múltiplos":
                     self.show_combined_menu()
+                elif choice == "Configurações":
+                    self.show_settings_menu()
                 elif choice == "Sair":
                     console.print("[info]Saindo...[/info]")
                     self._cleanup_processes()
@@ -61,6 +67,8 @@ class Menu:
 
         # Navigate to zotonic root (parent of apps_user/superleme)
         zotonic_root = os.path.dirname(os.path.dirname(self.superleme_path))
+        use_docker = self.docker_configs.get('superleme', {}).get('use_docker', False)
+        docker_config = self.docker_configs.get('superleme')
 
         choice = questionary.select(
             "Escolha uma operação:",
@@ -75,19 +83,22 @@ class Menu:
         ).ask()
 
         if choice == "Executar (bin/zotonic debug)":
-            Executor.run_command("bin/zotonic debug", zotonic_root, background=False)
+            Executor.run_command("bin/zotonic debug", zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
         elif choice == "Iniciar (bin/zotonic start)":
-            Executor.run_command("bin/zotonic start", zotonic_root, background=False)
+            Executor.run_command("bin/zotonic start", zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
         elif choice == "Parar (bin/zotonic stop)":
-            Executor.run_command("bin/zotonic stop", zotonic_root, background=False)
+            Executor.run_command("bin/zotonic stop", zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
         elif choice == "Status (bin/zotonic status)":
-            Executor.run_command("bin/zotonic status", zotonic_root, background=False)
+            Executor.run_command("bin/zotonic status", zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
         elif choice == "Compilar (make)":
-            Executor.run_command("make", zotonic_root, background=False)
+            Executor.run_command("make", zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
 
     def show_sl_phoenix_menu(self):
         """Display SL Phoenix project menu."""
         console.print("\n[info]SL Phoenix[/info]")
+
+        use_docker = self.docker_configs.get('sl_phoenix', {}).get('use_docker', False)
+        docker_config = self.docker_configs.get('sl_phoenix')
 
         choice = questionary.select(
             "Escolha uma operação:",
@@ -106,7 +117,7 @@ class Menu:
 
         if choice != "Voltar":
             target = choice.replace("make ", "")
-            Executor.run_make(target, self.sl_phoenix_path, background=False)
+            Executor.run_make(target, self.sl_phoenix_path, background=False, use_docker=use_docker, docker_config=docker_config)
 
     def show_extension_menu(self):
         """Display Extension project menu."""
@@ -129,20 +140,21 @@ class Menu:
 
         if choice != "Voltar":
             target = choice.replace("make ", "")
-            Executor.run_make(target, self.extension_path, background=False)
+            # Extension doesn't use Docker
+            Executor.run_make(target, self.extension_path, background=False, use_docker=False)
 
     def show_combined_menu(self):
         """Display menu for running multiple projects simultaneously."""
         console.print("\n[info]Executar Múltiplos Projetos[/info]")
 
         zotonic_root = os.path.dirname(os.path.dirname(self.superleme_path))
+        superleme_use_docker = self.docker_configs.get('superleme', {}).get('use_docker', False)
+        phoenix_use_docker = self.docker_configs.get('sl_phoenix', {}).get('use_docker', False)
 
         choice = questionary.select(
             "Escolha uma combinação:",
             choices=[
                 "Superleme + SL Phoenix (dev)",
-                "SL Phoenix + Extensão (dev)",
-                "Todos os 3 projetos (dev)",
                 "Superleme + SL Phoenix (build)",
                 "Custom",
                 "Voltar"
@@ -151,38 +163,18 @@ class Menu:
 
         if choice == "Superleme + SL Phoenix (dev)":
             commands = [
-                ("bin/zotonic debug", zotonic_root),
-                ("make server", self.sl_phoenix_path)
+                ("bin/zotonic debug", zotonic_root, superleme_use_docker),
+                ("make server", self.sl_phoenix_path, phoenix_use_docker)
             ]
-            new_processes = Executor.run_multiple(commands, background=True)
+            new_processes = Executor.run_multiple(commands, background=True, docker_configs=self.docker_configs)
             self.processes.extend(new_processes)
-            self._wait_for_processes()
-
-        elif choice == "SL Phoenix + Extensão (dev)":
-            commands = [
-                ("make server", self.sl_phoenix_path),
-                ("make dev", self.extension_path)
-            ]
-            new_processes = Executor.run_multiple(commands, background=True)
-            self.processes.extend(new_processes)
-            self._wait_for_processes()
-
-        elif choice == "Todos os 3 projetos (dev)":
-            commands = [
-                ("bin/zotonic debug", zotonic_root),
-                ("make server", self.sl_phoenix_path),
-                ("make dev", self.extension_path)
-            ]
-            new_processes = Executor.run_multiple(commands, background=True)
-            self.processes.extend(new_processes)
-            self._wait_for_processes()
 
         elif choice == "Superleme + SL Phoenix (build)":
             commands = [
-                ("make", zotonic_root),
-                ("make build", self.sl_phoenix_path)
+                ("make", zotonic_root, superleme_use_docker),
+                ("make build", self.sl_phoenix_path, phoenix_use_docker)
             ]
-            Executor.run_multiple(commands, background=False)
+            Executor.run_multiple(commands, background=False, docker_configs=self.docker_configs)
 
         elif choice == "Custom":
             self.show_custom_combined()
@@ -190,13 +182,14 @@ class Menu:
     def show_custom_combined(self):
         """Allow user to select custom combination of projects."""
         zotonic_root = os.path.dirname(os.path.dirname(self.superleme_path))
+        superleme_use_docker = self.docker_configs.get('superleme', {}).get('use_docker', False)
+        phoenix_use_docker = self.docker_configs.get('sl_phoenix', {}).get('use_docker', False)
 
         projects = questionary.checkbox(
             "Selecione os projetos para executar:",
             choices=[
                 "Superleme",
-                "SL Phoenix",
-                "Extensão"
+                "SL Phoenix"
             ]
         ).ask()
 
@@ -207,22 +200,174 @@ class Menu:
 
         if "Superleme" in projects:
             cmd = questionary.text("Comando para Superleme:", default="bin/zotonic debug").ask()
-            commands.append((cmd, zotonic_root))
+            commands.append((cmd, zotonic_root, superleme_use_docker))
 
         if "SL Phoenix" in projects:
             cmd = questionary.text("Comando para SL Phoenix:", default="make server").ask()
-            commands.append((cmd, self.sl_phoenix_path))
-
-        if "Extensão" in projects:
-            cmd = questionary.text("Comando para Extensão:", default="make dev").ask()
-            commands.append((cmd, self.extension_path))
+            commands.append((cmd, self.sl_phoenix_path, phoenix_use_docker))
 
         if commands:
             bg = questionary.confirm("Executar em background?", default=True).ask()
-            new_processes = Executor.run_multiple(commands, background=bg)
+            new_processes = Executor.run_multiple(commands, background=bg, docker_configs=self.docker_configs)
             if bg:
                 self.processes.extend(new_processes)
-                self._wait_for_processes()
+
+    def show_settings_menu(self):
+        """Display settings menu for configuration."""
+        console.print("\n[info]Configurações[/info]")
+
+        choice = questionary.select(
+            "O que deseja configurar?",
+            choices=[
+                "Versões de Linguagens - Superleme",
+                "Versões de Linguagens - SL Phoenix",
+                "Configurações Docker - Superleme",
+                "Configurações Docker - SL Phoenix",
+                "Voltar"
+            ]
+        ).ask()
+
+        if choice == "Versões de Linguagens - Superleme":
+            self._configure_superleme_versions()
+        elif choice == "Versões de Linguagens - SL Phoenix":
+            self._configure_phoenix_versions()
+        elif choice == "Configurações Docker - Superleme":
+            self._configure_superleme_docker()
+        elif choice == "Configurações Docker - SL Phoenix":
+            self._configure_phoenix_docker()
+
+    def _configure_superleme_versions(self):
+        """Configure language versions for Superleme."""
+        console.print("\n[info]Configuração de Versões - Superleme[/info]")
+
+        try:
+            config = DockerConfiguration.get(DockerConfiguration.project_name == 'superleme')
+            current_langs = json.loads(config.languages) if config.languages else {}
+        except:
+            current_langs = {}
+
+        erlang_version = questionary.text(
+            "Versão do Erlang:",
+            default=current_langs.get('erlang', '28')
+        ).ask()
+
+        postgres_version = questionary.text(
+            "Versão do PostgreSQL:",
+            default=current_langs.get('postgresql', '17-alpine')
+        ).ask()
+
+        # Update database
+        try:
+            config = DockerConfiguration.get(DockerConfiguration.project_name == 'superleme')
+            config.languages = json.dumps({"erlang": erlang_version, "postgresql": postgres_version})
+            config.postgres_version = postgres_version
+            config.save()
+
+            # Update in-memory config
+            self.docker_configs['superleme']['languages'] = config.languages
+            self.docker_configs['superleme']['postgres_version'] = postgres_version
+
+            console.print("[success]Versões atualizadas com sucesso![/success]")
+        except Exception as e:
+            console.print(f"[error]Erro ao atualizar versões: {e}[/error]")
+
+    def _configure_phoenix_versions(self):
+        """Configure language versions for SL Phoenix."""
+        console.print("\n[info]Configuração de Versões - SL Phoenix[/info]")
+
+        try:
+            config = DockerConfiguration.get(DockerConfiguration.project_name == 'sl_phoenix')
+            current_langs = json.loads(config.languages) if config.languages else {}
+        except:
+            current_langs = {}
+
+        elixir_version = questionary.text(
+            "Versão do Elixir:",
+            default=current_langs.get('elixir', '1.19.4')
+        ).ask()
+
+        erlang_version = questionary.text(
+            "Versão do Erlang:",
+            default=current_langs.get('erlang', '28')
+        ).ask()
+
+        node_version = questionary.text(
+            "Versão do Node.js:",
+            default=current_langs.get('node', '25.2.1')
+        ).ask()
+
+        # Update database
+        try:
+            config = DockerConfiguration.get(DockerConfiguration.project_name == 'sl_phoenix')
+            config.languages = json.dumps({
+                "elixir": elixir_version,
+                "erlang": erlang_version,
+                "node": node_version
+            })
+            config.save()
+
+            # Update in-memory config
+            self.docker_configs['sl_phoenix']['languages'] = config.languages
+
+            console.print("[success]Versões atualizadas com sucesso![/success]")
+        except Exception as e:
+            console.print(f"[error]Erro ao atualizar versões: {e}[/error]")
+
+    def _configure_superleme_docker(self):
+        """Configure Docker settings for Superleme."""
+        console.print("\n[info]Configuração Docker - Superleme[/info]")
+
+        try:
+            config = DockerConfiguration.get(DockerConfiguration.project_name == 'superleme')
+            current_use_docker = config.use_docker
+        except:
+            current_use_docker = False
+
+        use_docker = questionary.confirm(
+            "Usar Docker para executar Superleme?",
+            default=current_use_docker
+        ).ask()
+
+        # Update database
+        try:
+            config = DockerConfiguration.get(DockerConfiguration.project_name == 'superleme')
+            config.use_docker = use_docker
+            config.save()
+
+            # Update in-memory config
+            self.docker_configs['superleme']['use_docker'] = use_docker
+
+            console.print("[success]Configuração Docker atualizada![/success]")
+        except Exception as e:
+            console.print(f"[error]Erro ao atualizar configuração: {e}[/error]")
+
+    def _configure_phoenix_docker(self):
+        """Configure Docker settings for SL Phoenix."""
+        console.print("\n[info]Configuração Docker - SL Phoenix[/info]")
+
+        try:
+            config = DockerConfiguration.get(DockerConfiguration.project_name == 'sl_phoenix')
+            current_use_docker = config.use_docker
+        except:
+            current_use_docker = False
+
+        use_docker = questionary.confirm(
+            "Usar Docker para executar SL Phoenix?",
+            default=current_use_docker
+        ).ask()
+
+        # Update database
+        try:
+            config = DockerConfiguration.get(DockerConfiguration.project_name == 'sl_phoenix')
+            config.use_docker = use_docker
+            config.save()
+
+            # Update in-memory config
+            self.docker_configs['sl_phoenix']['use_docker'] = use_docker
+
+            console.print("[success]Configuração Docker atualizada![/success]")
+        except Exception as e:
+            console.print(f"[error]Erro ao atualizar configuração: {e}[/error]")
 
     def _wait_for_processes(self):
         """Wait for background processes to complete or user interrupt."""

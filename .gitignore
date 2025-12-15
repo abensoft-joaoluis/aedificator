@@ -1,3 +1,5 @@
 node_modules
 .env
 aedificator.db
+data/
+logs/*.log
