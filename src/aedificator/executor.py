@@ -176,7 +176,8 @@ class Executor:
                         stderr=subprocess.STDOUT,
                         executable='/bin/bash',
                         bufsize=1,  # line buffered
-                        universal_newlines=True,
+                        encoding='utf-8',
+                        errors='replace',  # Replace invalid UTF-8 bytes with '?' instead of crashing
                         env=env
                     )
 
@@ -184,19 +185,29 @@ class Executor:
                     console.print("[info]Aguardando saída do comando...[/info]")
 
                     line_count = 0
-                    for line in process.stdout:
-                        line_count += 1
-                        # Remove carriage returns and ensure proper line endings
-                        # Strip \r to prevent diagonal output
-                        line = line.replace('\r\n', '\n').replace('\r', '\n')
-                        # Ensure line ends with newline
-                        if not line.endswith('\n'):
-                            line = line + '\n'
-                        # Print to console
-                        print(line, end='', flush=True)
-                        # Write to log file
-                        log_file.write(line)
-                        log_file.flush()
+                    try:
+                        for line in process.stdout:
+                            line_count += 1
+                            try:
+                                # Remove carriage returns and ensure proper line endings
+                                # Strip \r to prevent diagonal output
+                                line = line.replace('\r\n', '\n').replace('\r', '\n')
+                                # Ensure line ends with newline
+                                if not line.endswith('\n'):
+                                    line = line + '\n'
+                                # Print to console
+                                print(line, end='', flush=True)
+                                # Write to log file
+                                log_file.write(line)
+                                log_file.flush()
+                            except UnicodeDecodeError as ue:
+                                # This should not happen with errors='replace', but just in case
+                                error_msg = f"[Erro de codificação - caractere inválido ignorado]\n"
+                                print(error_msg, flush=True)
+                                log_file.write(error_msg)
+                                log_file.flush()
+                    except Exception as read_error:
+                        console.print(f"[warning]Erro ao ler saída: {read_error}[/warning]")
 
                     # Wait for process to complete
                     process.wait()
@@ -211,8 +222,14 @@ class Executor:
                     console.print(f"\n[error]Comando falhou com código {returncode}[/error]")
                 console.print(f"Log: {log_filename}")
                 return None
+        except UnicodeDecodeError as ude:
+            console.print(f"[error]Erro de codificação UTF-8 na saída do comando[/error]")
+            console.print(f"[warning]O comando produziu caracteres não-UTF-8 que foram substituídos[/warning]")
+            console.print(f"Log: {log_filename}")
+            return None
         except Exception as e:
             console.print(f"[error]Erro ao executar comando: {e}[/error]")
+            console.print(f"Log: {log_filename}")
             return None
 
     @staticmethod
