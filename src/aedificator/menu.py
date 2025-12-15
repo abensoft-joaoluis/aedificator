@@ -1,5 +1,8 @@
 import questionary
 import os
+import atexit
+import signal
+import sys
 from typing import Optional
 from . import console
 from .executor import Executor
@@ -14,33 +17,43 @@ class Menu:
         self.extension_path = extension_path
         self.processes = []
 
+        # Register cleanup handlers
+        atexit.register(self._cleanup_processes)
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+
     def show_main_menu(self):
         """Display the main menu and handle user selection."""
-        while True:
-            console.print("\n[info]Menu Principal[/info]")
+        try:
+            while True:
+                console.print("\n[info]Menu Principal[/info]")
 
-            choice = questionary.select(
-                "Escolha uma categoria:",
-                choices=[
-                    "Superleme",
-                    "SL Phoenix",
-                    "Extensão",
-                    "Executar Múltiplos",
-                    "Sair"
-                ]
-            ).ask()
+                choice = questionary.select(
+                    "Escolha uma categoria:",
+                    choices=[
+                        "Superleme",
+                        "SL Phoenix",
+                        "Extensão",
+                        "Executar Múltiplos",
+                        "Sair"
+                    ]
+                ).ask()
 
-            if choice == "Superleme":
-                self.show_superleme_menu()
-            elif choice == "SL Phoenix":
-                self.show_sl_phoenix_menu()
-            elif choice == "Extensão":
-                self.show_extension_menu()
-            elif choice == "Executar Múltiplos":
-                self.show_combined_menu()
-            elif choice == "Sair":
-                console.print("[info]Saindo...[/info]")
-                break
+                if choice == "Superleme":
+                    self.show_superleme_menu()
+                elif choice == "SL Phoenix":
+                    self.show_sl_phoenix_menu()
+                elif choice == "Extensão":
+                    self.show_extension_menu()
+                elif choice == "Executar Múltiplos":
+                    self.show_combined_menu()
+                elif choice == "Sair":
+                    console.print("[info]Saindo...[/info]")
+                    self._cleanup_processes()
+                    break
+        except KeyboardInterrupt:
+            console.print("\n[warning]Interrompido pelo usuário[/warning]")
+            self._cleanup_processes()
 
     def show_superleme_menu(self):
         """Display Superleme project menu."""
@@ -141,7 +154,8 @@ class Menu:
                 ("bin/zotonic debug", zotonic_root),
                 ("make server", self.sl_phoenix_path)
             ]
-            self.processes = Executor.run_multiple(commands, background=True)
+            new_processes = Executor.run_multiple(commands, background=True)
+            self.processes.extend(new_processes)
             self._wait_for_processes()
 
         elif choice == "SL Phoenix + Extensão (dev)":
@@ -149,7 +163,8 @@ class Menu:
                 ("make server", self.sl_phoenix_path),
                 ("make dev", self.extension_path)
             ]
-            self.processes = Executor.run_multiple(commands, background=True)
+            new_processes = Executor.run_multiple(commands, background=True)
+            self.processes.extend(new_processes)
             self._wait_for_processes()
 
         elif choice == "Todos os 3 projetos (dev)":
@@ -158,7 +173,8 @@ class Menu:
                 ("make server", self.sl_phoenix_path),
                 ("make dev", self.extension_path)
             ]
-            self.processes = Executor.run_multiple(commands, background=True)
+            new_processes = Executor.run_multiple(commands, background=True)
+            self.processes.extend(new_processes)
             self._wait_for_processes()
 
         elif choice == "Superleme + SL Phoenix (build)":
@@ -166,7 +182,7 @@ class Menu:
                 ("make", zotonic_root),
                 ("make build", self.sl_phoenix_path)
             ]
-            self.processes = Executor.run_multiple(commands, background=False)
+            Executor.run_multiple(commands, background=False)
 
         elif choice == "Custom":
             self.show_custom_combined()
@@ -203,8 +219,9 @@ class Menu:
 
         if commands:
             bg = questionary.confirm("Executar em background?", default=True).ask()
-            self.processes = Executor.run_multiple(commands, background=bg)
+            new_processes = Executor.run_multiple(commands, background=bg)
             if bg:
+                self.processes.extend(new_processes)
                 self._wait_for_processes()
 
     def _wait_for_processes(self):
@@ -216,8 +233,39 @@ class Menu:
             console.print("\n[info]Processos executando... Pressione Ctrl+C para parar[/info]")
             for process in self.processes:
                 process.wait()
+            # Clear completed processes
+            self.processes.clear()
+            console.print("[success]Todos os processos finalizaram[/success]")
         except KeyboardInterrupt:
             console.print("\n[warning]Parando todos os processos...[/warning]")
-            for process in self.processes:
-                process.terminate()
+            self._cleanup_processes()
             console.print("[success]Processos parados[/success]")
+
+    def _cleanup_processes(self):
+        """Terminate all running background processes."""
+        if not self.processes:
+            return
+
+        for process in self.processes:
+            try:
+                if process.poll() is None:  # Process is still running
+                    try:
+                        console.print(f"[warning]Terminando processo PID {process.pid}...[/warning]")
+                    except:
+                        pass  # Console might be gone during shutdown
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except:
+                        # Force kill if terminate doesn't work
+                        process.kill()
+            except Exception:
+                pass  # Ignore errors during cleanup
+
+        self.processes.clear()
+
+    def _signal_handler(self, signum, frame):
+        """Handle interrupt signals."""
+        console.print("\n[warning]Sinal de interrupção recebido. Limpando processos...[/warning]")
+        self._cleanup_processes()
+        sys.exit(0)

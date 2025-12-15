@@ -8,6 +8,38 @@ class Executor:
     """Handles terminal command execution in project folders."""
 
     @staticmethod
+    def _has_mise(cwd: str) -> bool:
+        """Check if directory uses mise."""
+        mise_files = ['.mise.toml', '.tool-versions', '.mise.local.toml']
+        return any(os.path.exists(os.path.join(cwd, f)) for f in mise_files)
+
+    @staticmethod
+    def _trust_mise(cwd: str):
+        """Trust mise configuration in directory."""
+        try:
+            subprocess.run(
+                ['mise', 'trust'],
+                cwd=cwd,
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        except:
+            pass
+
+    @staticmethod
+    def _wrap_with_mise(command: str, cwd: str) -> str:
+        """Wrap command with mise if needed."""
+        if Executor._has_mise(cwd):
+            # Trust mise configuration first
+            Executor._trust_mise(cwd)
+            # Use mise exec to run command with proper environment
+            # Use -- to separate mise options from the command
+            mise_cmd = f'mise x -- {command}'
+            return mise_cmd
+        return command
+
+    @staticmethod
     def run_command(command: str, cwd: str, background: bool = False) -> Optional[subprocess.Popen]:
         """
         Execute a command in the specified directory.
@@ -24,26 +56,33 @@ class Executor:
             console.print(f"[error]Diretório não encontrado: {cwd}[/error]")
             return None
 
+        # Wrap command with mise if directory uses it
+        wrapped_command = Executor._wrap_with_mise(command, cwd)
+
         console.print(f"[info]Executando:[/info] {command}")
         console.print(f"[muted]Diretório: {cwd}[/muted]")
+        if Executor._has_mise(cwd):
+            console.print("[muted]Usando mise para gerenciar ambiente[/muted]")
 
         try:
             if background:
                 process = subprocess.Popen(
-                    command,
+                    wrapped_command,
                     shell=True,
                     cwd=cwd,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
+                    stderr=subprocess.PIPE,
+                    executable='/bin/bash'
                 )
                 console.print(f"[success]Processo iniciado em background (PID: {process.pid})[/success]")
                 return process
             else:
                 result = subprocess.run(
-                    command,
+                    wrapped_command,
                     shell=True,
                     cwd=cwd,
-                    check=False
+                    check=False,
+                    executable='/bin/bash'
                 )
                 if result.returncode == 0:
                     console.print("[success]Comando executado com sucesso[/success]")
