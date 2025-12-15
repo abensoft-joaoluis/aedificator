@@ -18,6 +18,7 @@ class DockerTemplates:
 FROM erlang:{erlang_version}
 
 # Install system dependencies
+# Added 'wget' to download rebar3
 RUN apt-get update && apt-get install -y \\
     build-essential \\
     git \\
@@ -27,25 +28,24 @@ RUN apt-get update && apt-get install -y \\
     libmagickwand-dev \\
     postgresql-client \\
     curl \\
+    wget \\
     && rm -rf /var/lib/apt/lists/*
 
 # -----------------------------------------------------------------------------
-# FIX: Install mise system-wide (binary) instead of user-local (shell script)
-# This ensures it works for User 1000 (zotonic) and Root
+# SIMPLIFIED: Install rebar3 directly (Global)
+# We skipped 'mise' because it conflicts with the Docker base image by
+# trying to re-compile Erlang from source.
 # -----------------------------------------------------------------------------
-RUN curl -L -o /usr/local/bin/mise https://mise.jdx.dev/mise-latest-linux-x64 \\
-    && chmod +x /usr/local/bin/mise
+RUN wget https://s3.amazonaws.com/rebar3/rebar3 && \\
+    chmod +x rebar3 && \\
+    mv rebar3 /usr/local/bin/rebar3
 
 # Create user zotonic (1000) inside the image
-# This ensures 'mise' has a valid HOME directory to write its data to
 RUN groupadd -g 1000 zotonic || true \\
     && useradd -m -u 1000 -g zotonic zotonic || true
 
 # Set working directory
 WORKDIR /opt/zotonic
-
-# Note: Code is mounted as volume, not copied
-# Compilation happens via 'make' command
 
 # Expose ports
 EXPOSE 8000 8443
@@ -118,7 +118,6 @@ CMD ["bin/sl_phoenix", "start"]
         """
         Generate docker-compose.yml content with Volume Isolation.
         """
-        # REMOVED: version: '3.8' (It is obsolete and causes warnings)
         compose_content = f"""# docker-compose.yml - {stack_type}
 # Gerado automaticamente pelo Aedificator
 
@@ -157,8 +156,6 @@ services:
       ZOTONIC_DBUSER: zotonic
       ZOTONIC_DBPASSWORD: zotonic
       ZOTONIC_DBDATABASE: zotonic
-      # Explicitly set home so mise knows where to write config
-      HOME: /home/zotonic
     ports:
       - "8000:8000"
       - "8443:8443"

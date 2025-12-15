@@ -116,8 +116,8 @@ class Menu:
                 
                 Executor.run_command("docker compose down --volumes --remove-orphans", zotonic_root, background=False, use_docker=False)
                 
-                # ADDED 'mise trust' to execution chain
-                cmd = "docker compose run --rm zotonic bash -c 'mise trust && mise exec -- make clean && mise exec -- make'"
+                # REMOVED mise commands. Now using pure Make.
+                cmd = "docker compose run --rm zotonic bash -c 'make clean && make'"
             else:
                 cmd = "make clean && make"
             Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
