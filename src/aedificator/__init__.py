@@ -17,4 +17,7 @@ console = Console(theme=_theme, markup=True, emoji=True, highlight=True)
 # Install pretty reprs to use the configured console
 _install_pretty(console=console)
 
-__all__ = ["console"]
+from .executor import Executor
+from .menu import Menu
+
+__all__ = ["console", "Executor", "Menu"]

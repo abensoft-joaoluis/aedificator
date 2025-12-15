@@ -4,6 +4,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from . import console
 from .memory import initialize_database, Paths
+from .menu import Menu
 
 class Main():
     def __init__(self):
@@ -63,8 +64,12 @@ class Main():
             )
 
 
-        self.console.print(self.superleme_folder)
-        
-
+        # Initialize and show menu
+        menu = Menu(
+            superleme_path=self.superleme_folder,
+            sl_phoenix_path=self.sl_phoenix_folder,
+            extension_path=self.extension_folder
+        )
+        menu.show_main_menu()
 
     
