@@ -1,3 +1,67 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+
+# Python environment files
+.python-version
+
+# Editor/IDE
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Logs and runtime data
+logs/
+data/logs/
+src/data/logs/
+src/data/aedificator.db
+src/data/*.db
+*.log
+
+# Testing, type checking, coverage
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Docker / env files
+*.env
+docker-compose.override.yml
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Misc
+*.so
+*.dylib
+*.local
+*.swp
 node_modules
 .env
 aedificator.db
