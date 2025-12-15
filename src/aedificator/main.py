@@ -16,7 +16,16 @@ class Main():
         db.create_tables([Paths, DockerConfiguration])
 
         selected = Pathing.find_folders()
-        is_first_install = not selected
+
+        # Check if Docker configurations exist
+        has_docker_config = False
+        try:
+            DockerConfiguration.get(DockerConfiguration.project_name == 'superleme')
+            has_docker_config = True
+        except:
+            pass
+
+        is_first_install = not selected or not has_docker_config
 
         # Try auto-detection if not in database
         auto_detected = None

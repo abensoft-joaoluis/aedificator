@@ -2,6 +2,8 @@ import subprocess
 import os
 import threading
 import time
+import sys
+import re
 from typing import Optional, List, Dict
 from . import console
 from rich.live import Live
@@ -20,14 +22,57 @@ class Executor:
         return any(os.path.exists(os.path.join(cwd, f)) for f in compose_files)
 
     @staticmethod
-    def _wrap_with_docker(command: str, cwd: str, use_docker: bool = True, docker_config: Optional[Dict] = None) -> str:
-        """Wrap command with docker-compose exec if needed."""
-        if use_docker and Executor._has_docker_compose(cwd):
-            # Get the service name from docker config or default to 'zotonic'
-            service = 'zotonic'  # Default for Superleme/Zotonic
+    def _update_docker_compose_versions(cwd: str, docker_config: Optional[Dict] = None):
+        """Update docker-compose.yml with versions from database config."""
+        if not docker_config:
+            return
 
-            # Wrap command to execute inside Docker container
-            docker_cmd = f'docker-compose exec {service} {command}'
+        compose_file = os.path.join(cwd, 'docker-compose.yml')
+        if not os.path.exists(compose_file):
+            compose_file = os.path.join(cwd, 'docker-compose.yaml')
+            if not os.path.exists(compose_file):
+                return
+
+        try:
+            # Read the docker-compose file
+            with open(compose_file, 'r') as f:
+                content = f.read()
+
+            # Update PostgreSQL version if configured
+            postgres_version = docker_config.get('postgres_version')
+            if postgres_version:
+                # Match patterns like "postgres:16.2-alpine" or "postgres:17-alpine"
+                content = re.sub(
+                    r'postgres:[0-9]+(\.[0-9]+)?(-[a-zA-Z0-9]+)?',
+                    f'postgres:{postgres_version}',
+                    content
+                )
+                console.print(f"[success]Versão do PostgreSQL atualizada para: {postgres_version}[/success]")
+
+            # Write back the updated content
+            with open(compose_file, 'w') as f:
+                f.write(content)
+
+        except Exception as e:
+            console.print(f"[warning]Não foi possível atualizar docker-compose.yml: {e}[/warning]")
+
+    @staticmethod
+    def _wrap_with_docker(command: str, cwd: str, use_docker: bool = True, docker_config: Optional[Dict] = None) -> str:
+        """Wrap command with docker-compose if needed."""
+        if use_docker and Executor._has_docker_compose(cwd):
+            # For Zotonic, use docker compose run instead of exec
+            # because we need to start the service, not execute in running container
+            if 'zotonic' in cwd:
+                # Use docker compose run with the command
+                # Set NO_PROXY to avoid proxy issues
+                # Add verbose flags for better debugging
+                # --ansi=never prevents ANSI codes that can cause buffering
+                # stdbuf -o0 -e0 forces unbuffered output
+                docker_cmd = f'stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --service-ports zotonic {command}'
+            else:
+                # For other services, use exec
+                service = 'app'  # Generic service name
+                docker_cmd = f'stdbuf -o0 -e0 docker-compose --ansi=never --verbose exec {service} {command}'
             return docker_cmd
         return command
 
@@ -50,13 +95,21 @@ class Executor:
             console.print(f"[error]Diretório não encontrado: {cwd}[/error]")
             return None
 
+        # Update docker-compose.yml with versions from database before running
+        if use_docker and Executor._has_docker_compose(cwd):
+            Executor._update_docker_compose_versions(cwd, docker_config)
+
         # Wrap command with Docker if enabled
         wrapped_command = Executor._wrap_with_docker(command, cwd, use_docker, docker_config)
 
         console.print(f"[info]Executando:[/info] {command}")
-        console.print(f"[muted]Diretório: {cwd}[/muted]")
+        console.print(f"Diretório: {cwd}")
         if use_docker and Executor._has_docker_compose(cwd):
-            console.print("[muted]Usando Docker para executar comando[/muted]")
+            console.print("Usando Docker para executar comando")
+            console.print(f"Comando Docker completo: {wrapped_command}")
+            console.print("\n" + "="*80)
+            console.print("[info]Saída do comando (verbose):[/info]")
+            console.print("="*80 + "\n")
 
         # Determine project name for logging
         if 'zotonic' in cwd:
@@ -69,8 +122,8 @@ class Executor:
             project_name = os.path.basename(cwd)
 
         # Create log directory at project root
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-        log_dir = os.path.join(project_root, "logs")
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        log_dir = os.path.join(project_root, "data", "logs")
         os.makedirs(log_dir, exist_ok=True)
 
         # Create log file
@@ -89,24 +142,59 @@ class Executor:
                     executable='/bin/bash'
                 )
                 console.print(f"[success]Processo iniciado em background (PID: {process.pid})[/success]")
-                console.print(f"[muted]Log: {log_filename}[/muted]")
+                console.print(f"Log: {log_filename}")
                 return process
             else:
-                with open(log_filename, 'w') as log_file:
-                    result = subprocess.run(
-                        wrapped_command,
+                # Run command with real-time output to console and log file
+                with open(log_filename, 'w', buffering=1) as log_file:
+                    # Set environment variables to force unbuffered output
+                    env = os.environ.copy()
+                    env['PYTHONUNBUFFERED'] = '1'
+                    env['DOCKER_BUILDKIT_PROGRESS'] = 'plain'
+                    env['BUILDKIT_PROGRESS'] = 'plain'
+                    env['COMPOSE_DOCKER_CLI_BUILD'] = '1'
+
+                    # Use script command to force line buffering (TTY emulation)
+                    # This forces programs to flush output line-by-line
+                    script_cmd = f'script -q -c {wrapped_command!r} /dev/null'
+
+                    process = subprocess.Popen(
+                        script_cmd,
                         shell=True,
                         cwd=cwd,
-                        check=False,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
                         executable='/bin/bash',
-                        stdout=log_file,
-                        stderr=subprocess.STDOUT
+                        bufsize=0,  # 0 = unbuffered
+                        universal_newlines=True,
+                        env=env
                     )
-                if result.returncode == 0:
-                    console.print("[success]Comando executado com sucesso[/success]")
+
+                    # Read and print output in real-time
+                    console.print("[info]Aguardando saída do comando...[/info]")
+
+                    line_count = 0
+                    for line in process.stdout:
+                        line_count += 1
+                        # Print to console
+                        print(line, end='')
+                        sys.stdout.flush()  # Force immediate output
+                        # Write to log file
+                        log_file.write(line)
+                        log_file.flush()
+
+                    # Wait for process to complete
+                    process.wait()
+                    returncode = process.returncode
+
+                    if line_count == 0:
+                        console.print("[warning]Nenhuma saída foi gerada pelo comando[/warning]")
+
+                if returncode == 0:
+                    console.print("\n[success]Comando executado com sucesso[/success]")
                 else:
-                    console.print(f"[error]Comando falhou com código {result.returncode}[/error]")
-                console.print(f"[muted]Log: {log_filename}[/muted]")
+                    console.print(f"\n[error]Comando falhou com código {returncode}[/error]")
+                console.print(f"Log: {log_filename}")
                 return None
         except Exception as e:
             console.print(f"[error]Erro ao executar comando: {e}[/error]")
@@ -140,7 +228,20 @@ class Executor:
         process_info = []
         for command_tuple in commands:
             command, cwd, use_docker = command_tuple
-            docker_config = docker_configs.get(cwd) if docker_configs else None
+
+            # Determine project name to get correct docker config
+            if 'zotonic' in cwd:
+                project_key = 'superleme'
+            elif 'phoenix' in cwd:
+                project_key = 'sl_phoenix'
+            else:
+                project_key = None
+
+            docker_config = docker_configs.get(project_key) if docker_configs and project_key else None
+
+            # Update docker-compose.yml with versions from database before running
+            if use_docker and Executor._has_docker_compose(cwd):
+                Executor._update_docker_compose_versions(cwd, docker_config)
 
             # Wrap command with Docker if needed
             wrapped_command = Executor._wrap_with_docker(command, cwd, use_docker, docker_config)
@@ -184,8 +285,8 @@ class Executor:
     def _display_live_output(process_info: List[Dict]):
         """Display live output from multiple processes using Rich Layout."""
         # Create log directory at project root
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-        log_dir = os.path.join(project_root, "logs")
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        log_dir = os.path.join(project_root, "data", "logs")
         os.makedirs(log_dir, exist_ok=True)
 
         # Create log files
@@ -196,7 +297,7 @@ class Executor:
             log_file = open(log_filename, 'w')
             proc_info['log_file'] = log_file
             log_files.append(log_filename)
-            console.print(f"[muted]Log para {proc_info['name']}: {log_filename}[/muted]")
+            console.print(f"Log para {proc_info['name']}: {log_filename}")
 
         # Create layout
         layout = Layout()
@@ -250,7 +351,7 @@ class Executor:
                         panel = Panel(
                             output_text,
                             title=f"[bold]{proc_info['name']}[/bold] - [{status_style}]{status}[/{status_style}]",
-                            subtitle=f"[dim]{proc_info['command']}[/dim]",
+                            subtitle=f"{proc_info['command']}",
                             border_style="cyan" if proc_info['process'].poll() is None else "red"
                         )
 

@@ -70,26 +70,36 @@ class Menu:
         use_docker = self.docker_configs.get('superleme', {}).get('use_docker', False)
         docker_config = self.docker_configs.get('superleme')
 
+        if use_docker:
+            console.print("Modo Docker ativo - usando run.sh")
+
         choice = questionary.select(
             "Escolha uma operação:",
             choices=[
-                "Executar (bin/zotonic debug)",
-                "Iniciar (bin/zotonic start)",
-                "Parar (bin/zotonic stop)",
-                "Status (bin/zotonic status)",
+                "Executar (debug mode)",
+                "Iniciar (start)",
+                "Parar (stop)",
+                "Status",
                 "Compilar (make)",
                 "Voltar"
             ]
         ).ask()
 
-        if choice == "Executar (bin/zotonic debug)":
-            Executor.run_command("bin/zotonic debug", zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
-        elif choice == "Iniciar (bin/zotonic start)":
-            Executor.run_command("bin/zotonic start", zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
-        elif choice == "Parar (bin/zotonic stop)":
-            Executor.run_command("bin/zotonic stop", zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
-        elif choice == "Status (bin/zotonic status)":
-            Executor.run_command("bin/zotonic status", zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
+        # Use different commands for Docker vs native
+        if choice == "Executar (debug mode)":
+            cmd = "./run.sh" if use_docker else "bin/zotonic debug"
+            Executor.run_command(cmd, zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
+        elif choice == "Iniciar (start)":
+            cmd = "./run.sh" if use_docker else "bin/zotonic start"
+            Executor.run_command(cmd, zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
+        elif choice == "Parar (stop)":
+            if use_docker:
+                console.print("[warning]Para parar Docker, use: docker compose down[/warning]")
+            else:
+                Executor.run_command("bin/zotonic stop", zotonic_root, background=False, use_docker=False)
+        elif choice == "Status":
+            cmd = "bin/zotonic status" if not use_docker else "./run.sh"
+            Executor.run_command(cmd, zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
         elif choice == "Compilar (make)":
             Executor.run_command("make", zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
 
@@ -162,8 +172,10 @@ class Menu:
         ).ask()
 
         if choice == "Superleme + SL Phoenix (dev)":
+            # Use ./run.sh for Docker, bin/zotonic debug for native
+            superleme_cmd = "./run.sh" if superleme_use_docker else "bin/zotonic debug"
             commands = [
-                ("bin/zotonic debug", zotonic_root, superleme_use_docker),
+                (superleme_cmd, zotonic_root, superleme_use_docker),
                 ("make server", self.sl_phoenix_path, phoenix_use_docker)
             ]
             new_processes = Executor.run_multiple(commands, background=True, docker_configs=self.docker_configs)
@@ -199,7 +211,8 @@ class Menu:
         commands = []
 
         if "Superleme" in projects:
-            cmd = questionary.text("Comando para Superleme:", default="bin/zotonic debug").ask()
+            default_cmd = "./run.sh" if superleme_use_docker else "bin/zotonic debug"
+            cmd = questionary.text("Comando para Superleme:", default=default_cmd).ask()
             commands.append((cmd, zotonic_root, superleme_use_docker))
 
         if "SL Phoenix" in projects:
@@ -215,6 +228,12 @@ class Menu:
     def show_settings_menu(self):
         """Display settings menu for configuration."""
         console.print("\n[info]Configurações[/info]")
+
+        # Show current Docker status
+        superleme_docker = self.docker_configs.get('superleme', {}).get('use_docker', False)
+        phoenix_docker = self.docker_configs.get('sl_phoenix', {}).get('use_docker', False)
+        console.print(f"Docker Superleme: {'[green]Ativo[/green]' if superleme_docker else '[red]Inativo[/red]'}")
+        console.print(f"Docker SL Phoenix: {'[green]Ativo[/green]' if phoenix_docker else '[red]Inativo[/red]'}")
 
         choice = questionary.select(
             "O que deseja configurar?",

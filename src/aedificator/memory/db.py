@@ -1,7 +1,9 @@
 import os
 from peewee import SqliteDatabase
 
-DB_DIR = os.path.join(os.getcwd(), "data")
+# Get the src/ directory (two levels up from this file: memory/db.py -> aedificator/ -> src/)
+SRC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DB_DIR = os.path.join(SRC_DIR, "data")
 DB_FILE = os.path.join(DB_DIR, "aedificator.db")
 
 def database():

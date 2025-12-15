@@ -122,8 +122,8 @@ class Pathing():
     def select_folder():
         """Select a folder using ranger-fm."""
         console.print("\n[info]Abrindo navegador de arquivos Ranger...[/info]")
-        console.print("[muted]Navegação: ↑/↓ para mover, → para entrar na pasta, ← para voltar[/muted]")
-        console.print("[muted]Seleção: Pressione 'q' para selecionar a pasta atual e sair[/muted]\n")
+        console.print("Navegação: ↑/↓ para mover, → para entrar na pasta, ← para voltar")
+        console.print("Seleção: Pressione 'q' para selecionar a pasta atual e sair\n")
         questionary.press_any_key_to_continue().ask()
 
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as tmp:

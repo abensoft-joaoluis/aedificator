@@ -7,8 +7,7 @@ _theme = Theme({
 	"info": "cyan",
 	"warning": "yellow",
 	"error": "bold red",
-	"success": "green",
-	"muted": "dim"
+	"success": "green"
 })
 
 # Shared, configured Console for the package
