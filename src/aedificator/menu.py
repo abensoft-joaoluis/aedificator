@@ -75,37 +75,63 @@ class Menu:
         docker_config = self.docker_configs.get('superleme')
 
         if use_docker:
-            console.print("Modo Docker ativo - usando run.sh")
+            console.print("Modo Docker ativo")
 
         choice = questionary.select(
             "Escolha uma operação:",
             choices=[
+                "Reconstruir imagem Docker",
+                "Compilar (make)",
                 "Executar (debug mode)",
                 "Iniciar (start)",
                 "Parar (stop)",
                 "Status",
-                "Compilar (make)",
                 "Voltar"
             ]
         ).ask()
 
         # Use different commands for Docker vs native
-        if choice == "Executar (debug mode)":
-            cmd = "./run.sh" if use_docker else "bin/zotonic debug"
-            Executor.run_command(cmd, zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
+        if choice == "Reconstruir imagem Docker":
+            if use_docker:
+                console.print("[info]Reconstruindo imagem Docker zotonic:latest...[/info]")
+                Executor.run_command("docker compose build --no-cache zotonic", zotonic_root, background=False, use_docker=False)
+            else:
+                console.print("[warning]Docker não está ativo para este projeto.[/warning]")
+        
+        elif choice == "Limpar e Recompilar":
+            if use_docker:
+                console.print("[warning]Apagando volumes antigos e recompilando...[/warning]")
+                # 1. Destroys the volume containing the corrupt binaries
+                Executor.run_command("docker compose down --volumes", zotonic_root, background=False, use_docker=False)
+                # 2. Runs make inside a fresh container
+                cmd = "docker compose run --rm zotonic bash -c 'rm -rf _build && mise exec -- make clean && mise exec -- make'"
+            else:
+                cmd = "make clean && make"
+            Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
+
+        elif choice == "Executar (debug mode)":
+            if use_docker:
+                cmd = "docker compose run --rm --service-ports zotonic bin/zotonic debug"
+            else:
+                cmd = "bin/zotonic debug"
+            Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
         elif choice == "Iniciar (start)":
-            cmd = "./run.sh" if use_docker else "bin/zotonic start"
-            Executor.run_command(cmd, zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
+            if use_docker:
+                cmd = "docker compose up -d zotonic"
+            else:
+                cmd = "bin/zotonic start"
+            Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
         elif choice == "Parar (stop)":
             if use_docker:
-                console.print("[warning]Para parar Docker, use: docker compose down[/warning]")
+                Executor.run_command("docker compose down", zotonic_root, background=False, use_docker=False)
             else:
                 Executor.run_command("bin/zotonic stop", zotonic_root, background=False, use_docker=False)
         elif choice == "Status":
-            cmd = "bin/zotonic status" if not use_docker else "./run.sh"
-            Executor.run_command(cmd, zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
-        elif choice == "Compilar (make)":
-            Executor.run_command("make", zotonic_root, background=False, use_docker=use_docker, docker_config=docker_config)
+            if use_docker:
+                cmd = "docker compose ps"
+            else:
+                cmd = "bin/zotonic status"
+            Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
 
     def show_sl_phoenix_menu(self):
         """Display SL Phoenix project menu."""
@@ -117,6 +143,8 @@ class Menu:
         choice = questionary.select(
             "Escolha uma operação:",
             choices=[
+                "Reconstruir imagem Docker",
+                "Setup Completo",
                 "make server",
                 "make setup",
                 "make install",
@@ -129,7 +157,32 @@ class Menu:
             ]
         ).ask()
 
-        if choice != "Voltar":
+        if choice == "Reconstruir imagem Docker":
+            if use_docker:
+                console.print("[info]Reconstruindo imagem Docker sl_phoenix:latest...[/info]")
+                Executor.run_command("docker compose build --no-cache phoenix", self.sl_phoenix_path, background=False, use_docker=False)
+            else:
+                console.print("[warning]Docker não está ativo para este projeto.[/warning]")
+        elif choice == "Setup Completo":
+            console.print("[info]Executando setup completo do Phoenix...[/info]")
+            console.print("[info]1. Instalando dependências Elixir (mix deps.get)...[/info]")
+            Executor.run_command("mix deps.get", self.sl_phoenix_path, background=False, use_docker=use_docker, docker_config=docker_config)
+            
+            console.print("[info]2. Compilando projeto (mix compile)...[/info]")
+            Executor.run_command("mix compile", self.sl_phoenix_path, background=False, use_docker=use_docker, docker_config=docker_config)
+            
+            console.print("[info]3. Instalando assets Node.js (cd assets && npm install)...[/info]")
+            assets_path = os.path.join(self.sl_phoenix_path, "assets")
+            if os.path.exists(assets_path):
+                Executor.run_command("npm install", assets_path, background=False, use_docker=use_docker, docker_config=docker_config)
+            else:
+                console.print("[warning]Diretório assets não encontrado, pulando npm install[/warning]")
+            
+            console.print("[info]4. Criando e migrando banco de dados...[/info]")
+            Executor.run_command("mix ecto.setup", self.sl_phoenix_path, background=False, use_docker=use_docker, docker_config=docker_config)
+            
+            console.print("[success]Setup do Phoenix concluído![/success]")
+        elif choice != "Voltar":
             target = choice.replace("make ", "")
             Executor.run_make(target, self.sl_phoenix_path, background=False, use_docker=use_docker, docker_config=docker_config)
 
@@ -543,7 +596,7 @@ class Menu:
                 console.print("[warning]Dockerfile não encontrado. Gerando...[/warning]")
                 DockerManager.generate_superleme_dockerfile(dockerfile_path)
 
-            DockerManager.build_image(dockerfile_path, "superleme", image_tag, zotonic_root)
+            DockerManager.build_image(dockerfile_path, "zotonic", image_tag, zotonic_root)
 
         elif choice == "SL Phoenix":
             dockerfile_path = os.path.join(self.sl_phoenix_path, "Dockerfile.phoenix")
@@ -553,7 +606,7 @@ class Menu:
                 console.print("[warning]Dockerfile não encontrado. Gerando...[/warning]")
                 DockerManager.generate_phoenix_dockerfile(dockerfile_path)
 
-            DockerManager.build_image(dockerfile_path, "sl-phoenix", image_tag, self.sl_phoenix_path)
+            DockerManager.build_image(dockerfile_path, "sl_phoenix", image_tag, self.sl_phoenix_path)
 
         elif choice == "Ambos (Superleme + Phoenix)":
             # Build Superleme
@@ -564,7 +617,7 @@ class Menu:
                 console.print("[warning]Dockerfile do Superleme não encontrado. Gerando...[/warning]")
                 DockerManager.generate_superleme_dockerfile(superleme_dockerfile)
 
-            DockerManager.build_image(superleme_dockerfile, "superleme", image_tag, zotonic_root)
+            DockerManager.build_image(superleme_dockerfile, "zotonic", image_tag, zotonic_root)
 
             # Build Phoenix
             phoenix_dockerfile = os.path.join(self.sl_phoenix_path, "Dockerfile.phoenix")
@@ -573,7 +626,7 @@ class Menu:
                 console.print("[warning]Dockerfile do Phoenix não encontrado. Gerando...[/warning]")
                 DockerManager.generate_phoenix_dockerfile(phoenix_dockerfile)
 
-            DockerManager.build_image(phoenix_dockerfile, "sl-phoenix", image_tag, self.sl_phoenix_path)
+            DockerManager.build_image(phoenix_dockerfile, "sl_phoenix", image_tag, self.sl_phoenix_path)
 
     def _push_images_submenu(self):
         """Submenu for pushing Docker images to registry."""
@@ -646,9 +699,9 @@ class Menu:
         ).ask()
 
         if choice == "Superleme":
-            DockerManager.remove_image("superleme", image_tag, force)
+            DockerManager.remove_image("zotonic", image_tag, force)
         elif choice == "SL Phoenix":
-            DockerManager.remove_image("sl-phoenix", image_tag, force)
+            DockerManager.remove_image("sl_phoenix", image_tag, force)
 
     def _prune_images_submenu(self):
         """Submenu for pruning unused Docker images."""

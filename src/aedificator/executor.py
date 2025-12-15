@@ -68,7 +68,19 @@ class Executor:
                 # Add verbose flags for better debugging
                 # --ansi=never prevents ANSI codes that can cause buffering
                 # stdbuf -o0 -e0 forces unbuffered output
-                docker_cmd = f'stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --service-ports zotonic {command}'
+                # -w sets working directory inside container to /opt/zotonic
+                # --entrypoint="" bypasses the zotonic entrypoint for direct commands like make
+                if command.startswith('make') or command.startswith('bash') or command.startswith('sh') or command.startswith('mise'):
+                    # For build commands, bypass entrypoint and run directly
+                    # Add NO_PROXY and HEX_MIRROR for network issues
+                    docker_cmd = f'NO_PROXY=* stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --entrypoint="" -w /opt/zotonic -e NO_PROXY=* -e http_proxy= -e https_proxy= zotonic {command}'
+                else:
+                    # For zotonic commands, use normal entrypoint
+                    docker_cmd = f'stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --service-ports -w /opt/zotonic zotonic {command}'
+            elif 'phoenix' in cwd:
+                # For Phoenix, use docker compose run with proper working directory
+                # Phoenix apps typically expect to be in /app directory inside container
+                docker_cmd = f'stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --service-ports -w /app app {command}'
             else:
                 # For other services, use exec
                 service = 'app'  # Generic service name
@@ -154,18 +166,16 @@ class Executor:
                     env['BUILDKIT_PROGRESS'] = 'plain'
                     env['COMPOSE_DOCKER_CLI_BUILD'] = '1'
 
-                    # Use script command to force line buffering (TTY emulation)
-                    # This forces programs to flush output line-by-line
-                    script_cmd = f'script -q -c {wrapped_command!r} /dev/null'
-
+                    # Run command directly without script wrapper
+                    # The stdbuf in the docker command handles unbuffered output
                     process = subprocess.Popen(
-                        script_cmd,
+                        wrapped_command,
                         shell=True,
                         cwd=cwd,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         executable='/bin/bash',
-                        bufsize=0,  # 0 = unbuffered
+                        bufsize=1,  # line buffered
                         universal_newlines=True,
                         env=env
                     )
@@ -176,9 +186,14 @@ class Executor:
                     line_count = 0
                     for line in process.stdout:
                         line_count += 1
+                        # Remove carriage returns and ensure proper line endings
+                        # Strip \r to prevent diagonal output
+                        line = line.replace('\r\n', '\n').replace('\r', '\n')
+                        # Ensure line ends with newline
+                        if not line.endswith('\n'):
+                            line = line + '\n'
                         # Print to console
-                        print(line, end='')
-                        sys.stdout.flush()  # Force immediate output
+                        print(line, end='', flush=True)
                         # Write to log file
                         log_file.write(line)
                         log_file.flush()

@@ -204,12 +204,25 @@ O Aedificator atualiza automaticamente o `docker-compose.yml` com as versões co
   2. Atualiza `postgres:16.2-alpine` → `postgres:17-alpine` no docker-compose.yml
   3. Executa o comando Docker com a versão correta
 
+### Diretórios de Trabalho
+
+Cada projeto usa um diretório de trabalho específico dentro do container:
+
+- **Superleme (Zotonic)**: `/opt/zotonic` - onde o Zotonic espera encontrar seus arquivos
+- **SL Phoenix**: `/app` - convenção padrão para aplicações Elixir/Phoenix
+- **Extensão**: `/workspace` ou `/app` - dependendo da configuração
+
+O Aedificator configura automaticamente o working directory correto com a flag `-w` no comando Docker.
+
+📖 **Documentação completa:** Veja [DOCKER_DIRECTORIES.md](docs/DOCKER_DIRECTORIES.md) para detalhes sobre configuração de diretórios, volumes, permissões e troubleshooting.
+
 ### Flags Verbose
 
 Todos os comandos Docker são executados com:
 - `--ansi=never`: Remove códigos ANSI que causam buffering
 - `--verbose`: Mostra logs detalhados
 - `--progress=plain`: Progresso em texto plano sem animações
+- `stdbuf -o0 -e0`: Força saída sem buffer para logs em tempo real
 
 ## 📊 Logs
 
@@ -305,6 +318,21 @@ Propriedade da Abensoft. Todos os direitos reservados.
 
 ## 🐛 Troubleshooting
 
+### Logs aparecem na diagonal ou com caracteres estranhos
+**Problema:** Saída do Docker aparece em diagonal ou com formatação estranha
+
+**Causa:** Caracteres de controle (carriage return `\r`) misturados com newlines
+
+**Solução:** O Aedificator remove automaticamente caracteres `\r` e força line buffering. Se ainda tiver problemas:
+```bash
+# Verifique se stdbuf está instalado
+which stdbuf
+
+# Se não estiver, instale coreutils
+sudo apt-get install coreutils  # Debian/Ubuntu
+sudo yum install coreutils      # CentOS/RHEL
+```
+
 ### Logs não aparecem
 - Verifique se o diretório `src/data/logs/` existe
 - O programa cria automaticamente, mas pode haver problema de permissões
@@ -314,8 +342,20 @@ Propriedade da Abensoft. Todos os direitos reservados.
 - O programa atualiza o docker-compose.yml automaticamente antes de cada execução
 - Verifique os logs para ver qual comando Docker foi executado
 
+### Comandos Docker não encontram arquivos
+**Problema:** Erro "file not found" ou "command not found" dentro do container
+
+**Causa:** Working directory incorreto dentro do container
+
+**Solução:** O Aedificator configura automaticamente:
+- Zotonic: `-w /opt/zotonic`
+- Phoenix: `-w /app`
+
+Verifique no log se o comando inclui o `-w` correto.
+
 ### Saída não aparece em tempo real
-- O programa usa `bufsize=0` e `sys.stdout.flush()`
+- O programa usa `bufsize=1` (line buffered) e `flush()` após cada linha
+- Comandos Docker incluem `stdbuf -o0 -e0` para forçar unbuffered
 - Se ainda tiver problema, verifique se o comando não está bufferizando internamente
 
 ### Banco de dados corrompido

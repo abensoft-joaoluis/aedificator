@@ -10,13 +10,6 @@ class DockerTemplates:
     def superleme_dockerfile(erlang_version: str, postgres_version: str) -> str:
         """
         Generate Dockerfile content for Superleme (Zotonic).
-
-        Args:
-            erlang_version: Erlang version (e.g., '28')
-            postgres_version: PostgreSQL version (e.g., '17-alpine')
-
-        Returns:
-            Dockerfile content as string
         """
         return f"""# Dockerfile for Superleme (Zotonic)
 # Gerado automaticamente pelo Aedificator
@@ -33,22 +26,26 @@ RUN apt-get update && apt-get install -y \\
     imagemagick \\
     libmagickwand-dev \\
     postgresql-client \\
+    curl \\
     && rm -rf /var/lib/apt/lists/*
+
+# Install mise for rebar3 management
+RUN curl https://mise.run | sh
+ENV PATH="/root/.local/bin:/root/.local/share/mise/shims:$PATH"
+
+# Install rebar3 via mise globally
+RUN mise use -g rebar@latest
 
 # Set working directory
 WORKDIR /opt/zotonic
 
-# Copy application
-COPY . .
-
-# Build Zotonic
-RUN make
+# Note: Code is mounted as volume, not copied
+# Compilation happens via 'make' command
 
 # Expose ports
 EXPOSE 8000 8443
 
-# Default command
-CMD ["bin/zotonic", "debug"]
+CMD ["/bin/bash"]
 """
 
     @staticmethod
@@ -57,14 +54,6 @@ CMD ["bin/zotonic", "debug"]
     ) -> str:
         """
         Generate Dockerfile content for SL Phoenix.
-
-        Args:
-            elixir_version: Elixir version (e.g., '1.19.4')
-            erlang_version: Erlang version (e.g., '28')
-            node_version: Node.js version (e.g., '25.2.1')
-
-        Returns:
-            Dockerfile content as string
         """
         return f"""# Dockerfile for SL Phoenix
 # Gerado automaticamente pelo Aedificator
@@ -122,14 +111,7 @@ CMD ["bin/sl_phoenix", "start"]
         stack_type: str, postgres_version: str
     ) -> str:
         """
-        Generate docker-compose.yml content for different stack configurations.
-
-        Args:
-            stack_type: 'superleme', 'phoenix', or 'full'
-            postgres_version: PostgreSQL version
-
-        Returns:
-            docker-compose.yml content as string
+        Generate docker-compose.yml content with Volume Isolation.
         """
         compose_content = f"""# docker-compose.yml - {stack_type}
 # Gerado automaticamente pelo Aedificator
@@ -141,14 +123,15 @@ services:
 
         if stack_type in ["superleme", "full"]:
             compose_content += f"""
-  postgres:
+  postgres-zotonic:
     image: postgres:{postgres_version}
+    container_name: zotonic-postgres
     environment:
       POSTGRES_USER: zotonic
       POSTGRES_PASSWORD: zotonic
       POSTGRES_DB: zotonic
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_zotonic_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
@@ -162,10 +145,10 @@ services:
       context: .
       dockerfile: Dockerfile.superleme
     depends_on:
-      postgres:
+      postgres-zotonic:
         condition: service_healthy
     environment:
-      ZOTONIC_DBHOST: postgres
+      ZOTONIC_DBHOST: postgres-zotonic
       ZOTONIC_DBPORT: 5432
       ZOTONIC_DBUSER: zotonic
       ZOTONIC_DBPASSWORD: zotonic
@@ -174,8 +157,13 @@ services:
       - "8000:8000"
       - "8443:8443"
     volumes:
-      - ./apps_user:/opt/zotonic/apps_user
-    command: bin/zotonic debug
+      - .:/opt/zotonic
+      # IMPORTANT: Isolate the build folder so Host and Docker don't conflict
+      - zotonic_build:/opt/zotonic/_build
+    working_dir: /opt/zotonic
+    user: "1000:1000"
+    entrypoint: ""
+    command: ["/bin/bash"]
 """
 
         if stack_type in ["phoenix", "full"]:
@@ -185,31 +173,43 @@ services:
       context: .
       dockerfile: Dockerfile.phoenix
     environment:
-      DATABASE_URL: ecto://zotonic:zotonic@postgres/zotonic
+      DATABASE_URL: ecto://phoenix:phoenix@postgres-phoenix/phoenix_dev
       SECRET_KEY_BASE: ${{SECRET_KEY_BASE:-changeme}}
       PHX_HOST: localhost
     ports:
       - "4000:4000"
     volumes:
-      - ./priv:/app/priv
+      - .:/app
+      # Isolate phoenix artifacts as well
+      - phoenix_deps:/app/deps
+      - phoenix_build:/app/_build
+    working_dir: /app
+    command: sh -c "mix deps.get && mix compile && mix ecto.setup && mix phx.server"
 """
             if stack_type == "phoenix":
                 compose_content += f"""
-  postgres:
+  postgres-phoenix:
     image: postgres:{postgres_version}
+    container_name: phoenix-postgres
     environment:
       POSTGRES_USER: phoenix
       POSTGRES_PASSWORD: phoenix
       POSTGRES_DB: phoenix_dev
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_phoenix_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
 """
 
         compose_content += """
 volumes:
-  postgres_data:
+  postgres_zotonic_data:
+  zotonic_build:
+"""
+        if stack_type in ["phoenix", "full"]:
+            compose_content += """  postgres_phoenix_data:
+  phoenix_deps:
+  phoenix_build:
 """
 
         return compose_content

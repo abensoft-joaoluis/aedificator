@@ -136,6 +136,9 @@ env['NO_PROXY'] = '*'  # Para Zotonic
 ## 🔧 Modificações Comuns
 
 ### Adicionar Nova Funcionalidade ao Menu
+EVITE ADICIONAR MUDANÇAS INÚTEIS!
+Não fazer mudanças repetitivas e se for algo para preparar o ambiente, faça isso antes e não adicione um item no menu só pra isso.
+
 
 1. Edite `menu.py`
 2. Adicione opção ao menu correspondente
@@ -320,3 +323,25 @@ Para distribuir:
 ---
 
 Este documento deve ser seguido por todos os agentes de IA trabalhando neste projeto.
+
+## 🧩 Observação sobre imagens Docker
+
+Os arquivos que geram as imagens Docker (Dockerfiles e `docker-compose.yml` gerado) estão centralizados no código do Aedificator em: `src/aedificator/docker/templates.py`.
+
+- Para personalizar a imagem do **Superleme (Zotonic)** edite a função `superleme_dockerfile()` dentro desse arquivo.
+- Para personalizar a imagem do **SL Phoenix** edite a função `phoenix_dockerfile()`.
+- O `docker-compose.yml` dinâmico é gerado pela função `docker_compose()` no mesmo arquivo.
+
+Ao modificar `templates.py`, reconstrua a imagem Docker localmente (ou atualize o repositório que fornece as imagens) e verifique os volumes/`working_dir` conforme documentado em `docs/DOCKER_DIRECTORIES.md`.
+
+Exemplo rápido para reconstruir localmente (na raiz do projeto com Docker instalado):
+
+```bash
+# Gerar/usar Dockerfile local e buildar a imagem para Superleme
+python -c "from src.aedificator.docker.templates import DockerTemplates; print(DockerTemplates.superleme_dockerfile('28','17-alpine'))" > /tmp/Dockerfile.zotonic
+docker build -t aedificator-zotonic -f /tmp/Dockerfile.zotonic /home/kaldwin/Abensoft/zotonic
+
+# Subir serviços com docker-compose gerado
+python -c "from src.aedificator.docker.templates import DockerTemplates; print(DockerTemplates.docker_compose('superleme','17-alpine'))" > /tmp/docker-compose.yml
+docker compose -f /tmp/docker-compose.yml up --build
+```
