@@ -112,14 +112,21 @@ class Menu:
                 compose_path = os.path.join(zotonic_root, "docker-compose.yml")
                 DockerManager.generate_docker_compose(compose_path, stack_type='superleme')
 
-                console.print("[warning]Limpando containers órfãos, volumes e arquivos...[/warning]")
-                
+                console.print("[warning]Parando containers e removendo volumes Docker...[/warning]")
                 Executor.run_command("docker compose down --volumes --remove-orphans", zotonic_root, background=False, use_docker=False)
-                
-                # REMOVED mise commands. Now using pure Make.
+
+                console.print("[info]Removendo volume zotonic_build explicitamente...[/info]")
+                # _build is a Docker volume, so remove the volume instead of the directory
+                Executor.run_command("docker volume rm zotonic_build 2>/dev/null || true", zotonic_root, background=False, use_docker=False)
+
+                console.print("[info]Criando volume com permissões corretas...[/info]")
+                # Create _build with correct ownership for user 1000:1000
+                Executor.run_command("docker compose run --rm --user root zotonic bash -c 'mkdir -p _build && chown -R 1000:1000 _build'", zotonic_root, background=False, use_docker=False)
+
+                console.print("[info]Executando clean build...[/info]")
                 cmd = "docker compose run --rm zotonic bash -c 'make clean && make'"
             else:
-                cmd = "make clean && make"
+                cmd = "rm -rf _build && make clean && make"
             Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
 
         elif choice == "Executar (debug mode)":
@@ -323,6 +330,7 @@ class Menu:
                 "Versões de Linguagens - SL Phoenix",
                 "Configurações Docker - Superleme",
                 "Configurações Docker - SL Phoenix",
+                "Limpar Processos Docker em Background",
                 "Voltar"
             ]
         ).ask()
@@ -335,6 +343,8 @@ class Menu:
             self._configure_superleme_docker()
         elif choice == "Configurações Docker - SL Phoenix":
             self._configure_phoenix_docker()
+        elif choice == "Limpar Processos Docker em Background":
+            self._cleanup_docker_processes()
 
     def _configure_superleme_versions(self):
         """Configure language versions for Superleme."""
@@ -468,6 +478,85 @@ class Menu:
             console.print("[success]Configuração Docker atualizada![/success]")
         except Exception as e:
             console.print(f"[error]Erro ao atualizar configuração: {e}[/error]")
+
+    def _cleanup_docker_processes(self):
+        """Clean up Docker containers and processes running in background."""
+        console.print("\n[info]Limpeza de Processos Docker[/info]")
+
+        choice = questionary.select(
+            "Escolha o tipo de limpeza:",
+            choices=[
+                "Listar containers em execução",
+                "Parar todos os containers Docker Compose",
+                "Parar e remover containers órfãos",
+                "Limpeza completa (containers + volumes + networks)",
+                "Voltar"
+            ]
+        ).ask()
+
+        if choice == "Listar containers em execução":
+            console.print("\n[info]Containers Docker em execução:[/info]")
+            Executor.run_command("docker ps -a", os.getcwd(), background=False, use_docker=False)
+
+        elif choice == "Parar todos os containers Docker Compose":
+            console.print("\n[warning]Parando todos os containers Docker Compose...[/warning]")
+
+            # Stop Superleme
+            zotonic_root = os.path.dirname(os.path.dirname(self.superleme_path))
+            if os.path.exists(os.path.join(zotonic_root, "docker-compose.yml")):
+                console.print("[info]Parando containers do Superleme...[/info]")
+                Executor.run_command("docker compose down", zotonic_root, background=False, use_docker=False)
+
+            # Stop Phoenix
+            if os.path.exists(os.path.join(self.sl_phoenix_path, "docker-compose.phoenix.yml")):
+                console.print("[info]Parando containers do SL Phoenix...[/info]")
+                Executor.run_command("docker compose -f docker-compose.phoenix.yml down", self.sl_phoenix_path, background=False, use_docker=False)
+
+            console.print("[success]Containers parados com sucesso![/success]")
+
+        elif choice == "Parar e remover containers órfãos":
+            console.print("\n[warning]Removendo containers órfãos...[/warning]")
+
+            # Clean Superleme
+            zotonic_root = os.path.dirname(os.path.dirname(self.superleme_path))
+            if os.path.exists(os.path.join(zotonic_root, "docker-compose.yml")):
+                console.print("[info]Limpando containers órfãos do Superleme...[/info]")
+                Executor.run_command("docker compose down --remove-orphans", zotonic_root, background=False, use_docker=False)
+
+            # Clean Phoenix
+            if os.path.exists(os.path.join(self.sl_phoenix_path, "docker-compose.phoenix.yml")):
+                console.print("[info]Limpando containers órfãos do SL Phoenix...[/info]")
+                Executor.run_command("docker compose -f docker-compose.phoenix.yml down --remove-orphans", self.sl_phoenix_path, background=False, use_docker=False)
+
+            console.print("[success]Containers órfãos removidos![/success]")
+
+        elif choice == "Limpeza completa (containers + volumes + networks)":
+            confirm = questionary.confirm(
+                "ATENÇÃO: Isso irá remover containers, volumes e networks. Continuar?",
+                default=False
+            ).ask()
+
+            if confirm:
+                console.print("\n[warning]Executando limpeza completa...[/warning]")
+
+                # Clean Superleme
+                zotonic_root = os.path.dirname(os.path.dirname(self.superleme_path))
+                if os.path.exists(os.path.join(zotonic_root, "docker-compose.yml")):
+                    console.print("[info]Limpeza completa do Superleme...[/info]")
+                    Executor.run_command("docker compose down --volumes --remove-orphans", zotonic_root, background=False, use_docker=False)
+
+                # Clean Phoenix
+                if os.path.exists(os.path.join(self.sl_phoenix_path, "docker-compose.phoenix.yml")):
+                    console.print("[info]Limpeza completa do SL Phoenix...[/info]")
+                    Executor.run_command("docker compose -f docker-compose.phoenix.yml down --volumes --remove-orphans", self.sl_phoenix_path, background=False, use_docker=False)
+
+                # Prune unused networks
+                console.print("[info]Removendo networks não utilizadas...[/info]")
+                Executor.run_command("docker network prune -f", os.getcwd(), background=False, use_docker=False)
+
+                console.print("[success]Limpeza completa concluída![/success]")
+            else:
+                console.print("[info]Limpeza cancelada.[/info]")
 
     def _wait_for_processes(self):
         """Wait for background processes to complete or user interrupt."""
