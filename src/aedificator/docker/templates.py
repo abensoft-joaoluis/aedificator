@@ -29,12 +29,17 @@ RUN apt-get update && apt-get install -y \\
     curl \\
     && rm -rf /var/lib/apt/lists/*
 
-# Install mise for rebar3 management
-RUN curl https://mise.run | sh
-ENV PATH="/root/.local/bin:/root/.local/share/mise/shims:$PATH"
+# -----------------------------------------------------------------------------
+# FIX: Install mise system-wide (binary) instead of user-local (shell script)
+# This ensures it works for User 1000 (zotonic) and Root
+# -----------------------------------------------------------------------------
+RUN curl -L -o /usr/local/bin/mise https://mise.jdx.dev/mise-latest-linux-x64 \\
+    && chmod +x /usr/local/bin/mise
 
-# Install rebar3 via mise globally
-RUN mise use -g rebar@latest
+# Create user zotonic (1000) inside the image
+# This ensures 'mise' has a valid HOME directory to write its data to
+RUN groupadd -g 1000 zotonic || true \\
+    && useradd -m -u 1000 -g zotonic zotonic || true
 
 # Set working directory
 WORKDIR /opt/zotonic
@@ -113,10 +118,9 @@ CMD ["bin/sl_phoenix", "start"]
         """
         Generate docker-compose.yml content with Volume Isolation.
         """
+        # REMOVED: version: '3.8' (It is obsolete and causes warnings)
         compose_content = f"""# docker-compose.yml - {stack_type}
 # Gerado automaticamente pelo Aedificator
-
-version: '3.8'
 
 services:
 """
@@ -153,6 +157,8 @@ services:
       ZOTONIC_DBUSER: zotonic
       ZOTONIC_DBPASSWORD: zotonic
       ZOTONIC_DBDATABASE: zotonic
+      # Explicitly set home so mise knows where to write config
+      HOME: /home/zotonic
     ports:
       - "8000:8000"
       - "8443:8443"

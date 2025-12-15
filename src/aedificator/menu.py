@@ -75,13 +75,13 @@ class Menu:
         docker_config = self.docker_configs.get('superleme')
 
         if use_docker:
-            console.print("Modo Docker ativo")
+            console.print("[cyan]Modo Docker ativo[/cyan]")
 
         choice = questionary.select(
             "Escolha uma operação:",
             choices=[
                 "Reconstruir imagem Docker",
-                "Compilar (make)",
+                "Recompilar (Clean & Make)",
                 "Executar (debug mode)",
                 "Iniciar (start)",
                 "Parar (stop)",
@@ -90,42 +90,60 @@ class Menu:
             ]
         ).ask()
 
-        # Use different commands for Docker vs native
         if choice == "Reconstruir imagem Docker":
             if use_docker:
+                console.print("[info]Atualizando receitas Docker (overwrite)...[/info]")
+                
+                # Force regeneration of Dockerfiles
+                dockerfile_path = os.path.join(zotonic_root, "Dockerfile.superleme")
+                compose_path = os.path.join(zotonic_root, "docker-compose.yml")
+                
+                DockerManager.generate_superleme_dockerfile(dockerfile_path)
+                DockerManager.generate_docker_compose(compose_path, stack_type='superleme')
+                
                 console.print("[info]Reconstruindo imagem Docker zotonic:latest...[/info]")
                 Executor.run_command("docker compose build --no-cache zotonic", zotonic_root, background=False, use_docker=False)
             else:
                 console.print("[warning]Docker não está ativo para este projeto.[/warning]")
-        
-        elif choice == "Limpar e Recompilar":
+
+        elif choice == "Recompilar (Clean & Make)":
             if use_docker:
-                console.print("[warning]Apagando volumes antigos e recompilando...[/warning]")
-                # 1. Destroys the volume containing the corrupt binaries
-                Executor.run_command("docker compose down --volumes", zotonic_root, background=False, use_docker=False)
-                # 2. Runs make inside a fresh container
-                cmd = "docker compose run --rm zotonic bash -c 'rm -rf _build && mise exec -- make clean && mise exec -- make'"
+                console.print("[info]Garantindo integridade dos arquivos Docker...[/info]")
+                compose_path = os.path.join(zotonic_root, "docker-compose.yml")
+                DockerManager.generate_docker_compose(compose_path, stack_type='superleme')
+
+                console.print("[warning]Limpando containers órfãos, volumes e arquivos...[/warning]")
+                
+                Executor.run_command("docker compose down --volumes --remove-orphans", zotonic_root, background=False, use_docker=False)
+                
+                # ADDED 'mise trust' to execution chain
+                cmd = "docker compose run --rm zotonic bash -c 'mise trust && mise exec -- make clean && mise exec -- make'"
             else:
                 cmd = "make clean && make"
             Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
 
         elif choice == "Executar (debug mode)":
             if use_docker:
+                # Ensure ports are free before running
+                Executor.run_command("docker compose down --remove-orphans", zotonic_root, background=False, use_docker=False)
                 cmd = "docker compose run --rm --service-ports zotonic bin/zotonic debug"
             else:
                 cmd = "bin/zotonic debug"
             Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
+            
         elif choice == "Iniciar (start)":
             if use_docker:
                 cmd = "docker compose up -d zotonic"
             else:
                 cmd = "bin/zotonic start"
             Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
+            
         elif choice == "Parar (stop)":
             if use_docker:
                 Executor.run_command("docker compose down", zotonic_root, background=False, use_docker=False)
             else:
                 Executor.run_command("bin/zotonic stop", zotonic_root, background=False, use_docker=False)
+                
         elif choice == "Status":
             if use_docker:
                 cmd = "docker compose ps"
@@ -159,6 +177,14 @@ class Menu:
 
         if choice == "Reconstruir imagem Docker":
             if use_docker:
+                console.print("[info]Atualizando receitas Docker (overwrite)...[/info]")
+                
+                dockerfile_path = os.path.join(self.sl_phoenix_path, "Dockerfile.phoenix")
+                compose_path = os.path.join(self.sl_phoenix_path, "docker-compose.phoenix.yml")
+                
+                DockerManager.generate_phoenix_dockerfile(dockerfile_path)
+                DockerManager.generate_docker_compose(compose_path, stack_type='phoenix')
+
                 console.print("[info]Reconstruindo imagem Docker sl_phoenix:latest...[/info]")
                 Executor.run_command("docker compose build --no-cache phoenix", self.sl_phoenix_path, background=False, use_docker=False)
             else:
@@ -207,7 +233,6 @@ class Menu:
 
         if choice != "Voltar":
             target = choice.replace("make ", "")
-            # Extension doesn't use Docker
             Executor.run_make(target, self.extension_path, background=False, use_docker=False)
 
     def show_combined_menu(self):
@@ -229,7 +254,6 @@ class Menu:
         ).ask()
 
         if choice == "Superleme + SL Phoenix (dev)":
-            # Use ./run.sh for Docker, bin/zotonic debug for native
             superleme_cmd = "./run.sh" if superleme_use_docker else "bin/zotonic debug"
             commands = [
                 (superleme_cmd, zotonic_root, superleme_use_docker),
