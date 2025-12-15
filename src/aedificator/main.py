@@ -21,13 +21,13 @@ class Main():
             auto_detected = Pathing.auto_detect_folders()
             detected_count = sum(1 for v in auto_detected.values() if v)
             if detected_count > 0:
-                self.console.print(f"[success]Auto-detected {detected_count} folder(s):[/success]")
+                self.console.print(f"[success]Auto-detected {detected_count} folders[/success]")
                 if auto_detected["superleme_path"]:
-                    self.console.print(f"  • Superleme: [cyan]{auto_detected['superleme_path']}[/cyan]")
+                    self.console.print(f"Superleme: {auto_detected['superleme_path']}")
                 if auto_detected["sl_phoenix_path"]:
-                    self.console.print(f"  • SL Phoenix: [cyan]{auto_detected['sl_phoenix_path']}[/cyan]")
+                    self.console.print(f"SL Phoenix: {auto_detected['sl_phoenix_path']}")
                 if auto_detected["extension_path"]:
-                    self.console.print(f"  • Extension: [cyan]{auto_detected['extension_path']}[/cyan]")
+                    self.console.print(f"Extension: {auto_detected['extension_path']}")
             else:
                 self.console.print("[warning]No folders auto-detected[/warning]")
 
