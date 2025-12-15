@@ -357,8 +357,4 @@ Verifique se comando usa `bufsize=0` e `stdbuf -o0 -e0`.
 
 ```bash
 rm src/data/aedificator.db
-```
 
-## Suporte
-
-Contato: equipe Abensoft.
