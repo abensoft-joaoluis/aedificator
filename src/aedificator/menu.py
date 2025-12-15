@@ -8,6 +8,7 @@ from typing import Optional
 from . import console
 from .executor import Executor
 from .memory import DockerConfiguration
+from .docker import DockerManager
 
 
 class Menu:
@@ -38,6 +39,7 @@ class Menu:
                         "SL Phoenix",
                         "Extensão",
                         "Executar Múltiplos",
+                        "Docker Images",
                         "Configurações",
                         "Sair"
                     ]
@@ -51,6 +53,8 @@ class Menu:
                     self.show_extension_menu()
                 elif choice == "Executar Múltiplos":
                     self.show_combined_menu()
+                elif choice == "Docker Images":
+                    self.show_docker_images_menu()
                 elif choice == "Configurações":
                     self.show_settings_menu()
                 elif choice == "Sair":
@@ -433,3 +437,232 @@ class Menu:
         console.print("\n[warning]Sinal de interrupção recebido. Limpando processos...[/warning]")
         self._cleanup_processes()
         sys.exit(0)
+
+    def show_docker_images_menu(self):
+        """Display Docker Images management menu."""
+        console.print("\n[info]Gerenciamento de Docker Images[/info]")
+
+        choice = questionary.select(
+            "Escolha uma operação:",
+            choices=[
+                "Gerar Dockerfiles",
+                "Build de Imagens",
+                "Push para Registry",
+                "Listar Imagens Locais",
+                "Remover Imagem",
+                "Limpar Imagens Não Utilizadas",
+                "Voltar"
+            ]
+        ).ask()
+
+        if choice == "Gerar Dockerfiles":
+            self._generate_dockerfiles_submenu()
+        elif choice == "Build de Imagens":
+            self._build_images_submenu()
+        elif choice == "Push para Registry":
+            self._push_images_submenu()
+        elif choice == "Listar Imagens Locais":
+            DockerManager.list_images()
+        elif choice == "Remover Imagem":
+            self._remove_image_submenu()
+        elif choice == "Limpar Imagens Não Utilizadas":
+            self._prune_images_submenu()
+
+    def _generate_dockerfiles_submenu(self):
+        """Submenu for generating Dockerfiles."""
+        console.print("\n[info]Gerar Dockerfiles[/info]")
+
+        choice = questionary.select(
+            "Qual stack deseja gerar?",
+            choices=[
+                "Superleme (standalone)",
+                "SL Phoenix (standalone)",
+                "Stack Completo (Superleme + Phoenix)",
+                "Voltar"
+            ]
+        ).ask()
+
+        if choice == "Superleme (standalone)":
+            # Get output path
+            zotonic_root = os.path.dirname(os.path.dirname(self.superleme_path))
+            dockerfile_path = os.path.join(zotonic_root, "Dockerfile.superleme")
+            compose_path = os.path.join(zotonic_root, "docker-compose.superleme.yml")
+
+            DockerManager.generate_superleme_dockerfile(dockerfile_path)
+            DockerManager.generate_docker_compose(compose_path, stack_type='superleme')
+
+        elif choice == "SL Phoenix (standalone)":
+            dockerfile_path = os.path.join(self.sl_phoenix_path, "Dockerfile.phoenix")
+            compose_path = os.path.join(self.sl_phoenix_path, "docker-compose.phoenix.yml")
+
+            DockerManager.generate_phoenix_dockerfile(dockerfile_path)
+            DockerManager.generate_docker_compose(compose_path, stack_type='phoenix')
+
+        elif choice == "Stack Completo (Superleme + Phoenix)":
+            # Generate in a common parent directory
+            zotonic_root = os.path.dirname(os.path.dirname(self.superleme_path))
+            parent_dir = os.path.dirname(zotonic_root)
+
+            superleme_dockerfile = os.path.join(parent_dir, "Dockerfile.superleme")
+            phoenix_dockerfile = os.path.join(parent_dir, "Dockerfile.phoenix")
+            compose_path = os.path.join(parent_dir, "docker-compose.full-stack.yml")
+
+            DockerManager.generate_superleme_dockerfile(superleme_dockerfile)
+            DockerManager.generate_phoenix_dockerfile(phoenix_dockerfile)
+            DockerManager.generate_docker_compose(compose_path, stack_type='full')
+
+    def _build_images_submenu(self):
+        """Submenu for building Docker images."""
+        console.print("\n[info]Build de Imagens Docker[/info]")
+
+        choice = questionary.select(
+            "Qual imagem deseja buildar?",
+            choices=[
+                "Superleme",
+                "SL Phoenix",
+                "Ambos (Superleme + Phoenix)",
+                "Voltar"
+            ]
+        ).ask()
+
+        if choice == "Voltar":
+            return
+
+        # Ask for image tag
+        image_tag = questionary.text(
+            "Tag da imagem:",
+            default="latest"
+        ).ask()
+
+        if choice == "Superleme":
+            zotonic_root = os.path.dirname(os.path.dirname(self.superleme_path))
+            dockerfile_path = os.path.join(zotonic_root, "Dockerfile.superleme")
+
+            # Check if Dockerfile exists
+            if not os.path.exists(dockerfile_path):
+                console.print("[warning]Dockerfile não encontrado. Gerando...[/warning]")
+                DockerManager.generate_superleme_dockerfile(dockerfile_path)
+
+            DockerManager.build_image(dockerfile_path, "superleme", image_tag, zotonic_root)
+
+        elif choice == "SL Phoenix":
+            dockerfile_path = os.path.join(self.sl_phoenix_path, "Dockerfile.phoenix")
+
+            # Check if Dockerfile exists
+            if not os.path.exists(dockerfile_path):
+                console.print("[warning]Dockerfile não encontrado. Gerando...[/warning]")
+                DockerManager.generate_phoenix_dockerfile(dockerfile_path)
+
+            DockerManager.build_image(dockerfile_path, "sl-phoenix", image_tag, self.sl_phoenix_path)
+
+        elif choice == "Ambos (Superleme + Phoenix)":
+            # Build Superleme
+            zotonic_root = os.path.dirname(os.path.dirname(self.superleme_path))
+            superleme_dockerfile = os.path.join(zotonic_root, "Dockerfile.superleme")
+
+            if not os.path.exists(superleme_dockerfile):
+                console.print("[warning]Dockerfile do Superleme não encontrado. Gerando...[/warning]")
+                DockerManager.generate_superleme_dockerfile(superleme_dockerfile)
+
+            DockerManager.build_image(superleme_dockerfile, "superleme", image_tag, zotonic_root)
+
+            # Build Phoenix
+            phoenix_dockerfile = os.path.join(self.sl_phoenix_path, "Dockerfile.phoenix")
+
+            if not os.path.exists(phoenix_dockerfile):
+                console.print("[warning]Dockerfile do Phoenix não encontrado. Gerando...[/warning]")
+                DockerManager.generate_phoenix_dockerfile(phoenix_dockerfile)
+
+            DockerManager.build_image(phoenix_dockerfile, "sl-phoenix", image_tag, self.sl_phoenix_path)
+
+    def _push_images_submenu(self):
+        """Submenu for pushing Docker images to registry."""
+        console.print("\n[info]Push para Registry[/info]")
+
+        # Ask for registry
+        registry = questionary.text(
+            "Registry URL (deixe vazio para Docker Hub):",
+            default=""
+        ).ask()
+
+        registry = registry.strip() if registry else None
+
+        choice = questionary.select(
+            "Qual imagem deseja enviar?",
+            choices=[
+                "Superleme",
+                "SL Phoenix",
+                "Ambos",
+                "Voltar"
+            ]
+        ).ask()
+
+        if choice == "Voltar":
+            return
+
+        # Ask for image tag
+        image_tag = questionary.text(
+            "Tag da imagem:",
+            default="latest"
+        ).ask()
+
+        if choice == "Superleme":
+            DockerManager.push_image("superleme", image_tag, registry)
+        elif choice == "SL Phoenix":
+            DockerManager.push_image("sl-phoenix", image_tag, registry)
+        elif choice == "Ambos":
+            DockerManager.push_image("superleme", image_tag, registry)
+            DockerManager.push_image("sl-phoenix", image_tag, registry)
+
+    def _remove_image_submenu(self):
+        """Submenu for removing Docker images."""
+        console.print("\n[info]Remover Imagem Docker[/info]")
+
+        # List images first
+        DockerManager.list_images()
+
+        choice = questionary.select(
+            "Qual imagem deseja remover?",
+            choices=[
+                "Superleme",
+                "SL Phoenix",
+                "Voltar"
+            ]
+        ).ask()
+
+        if choice == "Voltar":
+            return
+
+        # Ask for image tag
+        image_tag = questionary.text(
+            "Tag da imagem:",
+            default="latest"
+        ).ask()
+
+        # Ask if force removal
+        force = questionary.confirm(
+            "Forçar remoção (mesmo se em uso)?",
+            default=False
+        ).ask()
+
+        if choice == "Superleme":
+            DockerManager.remove_image("superleme", image_tag, force)
+        elif choice == "SL Phoenix":
+            DockerManager.remove_image("sl-phoenix", image_tag, force)
+
+    def _prune_images_submenu(self):
+        """Submenu for pruning unused Docker images."""
+        console.print("\n[info]Limpar Imagens Não Utilizadas[/info]")
+
+        all_images = questionary.confirm(
+            "Remover TODAS as imagens não utilizadas (não apenas dangling)?",
+            default=False
+        ).ask()
+
+        confirm = questionary.confirm(
+            "Tem certeza? Esta operação não pode ser desfeita.",
+            default=False
+        ).ask()
+
+        if confirm:
+            DockerManager.prune_images(all_images)
