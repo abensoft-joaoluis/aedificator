@@ -13,10 +13,40 @@ class Main():
         db.create_tables([Paths])
 
         selected = Pathing.find_folders()
-        # Prompt for each path if not stored in memory
-        self.superleme_folder = selected.superleme_path if (selected and selected.superleme_path) else Pathing.select_folder()
-        self.sl_phoenix_folder = selected.sl_phoenix_path if (selected and selected.sl_phoenix_path) else Pathing.select_folder()
-        self.extension_folder = selected.extension_path if (selected and selected.extension_path) else Pathing.select_folder()
+
+        # Try auto-detection if not in database
+        auto_detected = None
+        if not selected or not all([selected.superleme_path, selected.sl_phoenix_path, selected.extension_path]):
+            self.console.print("[info]Auto-detecting project folders...[/info]")
+            auto_detected = Pathing.auto_detect_folders()
+            detected_count = sum(1 for v in auto_detected.values() if v)
+            if detected_count > 0:
+                self.console.print(f"[success]Auto-detected {detected_count} folder(s):[/success]")
+                if auto_detected["superleme_path"]:
+                    self.console.print(f"  • Superleme: [cyan]{auto_detected['superleme_path']}[/cyan]")
+                if auto_detected["sl_phoenix_path"]:
+                    self.console.print(f"  • SL Phoenix: [cyan]{auto_detected['sl_phoenix_path']}[/cyan]")
+                if auto_detected["extension_path"]:
+                    self.console.print(f"  • Extension: [cyan]{auto_detected['extension_path']}[/cyan]")
+            else:
+                self.console.print("[warning]No folders auto-detected[/warning]")
+
+        # Use database > auto-detection > user selection (in that priority order)
+        self.superleme_folder = (
+            (selected.superleme_path if selected else None) or
+            (auto_detected["superleme_path"] if auto_detected else None) or
+            Pathing.select_folder()
+        )
+        self.sl_phoenix_folder = (
+            (selected.sl_phoenix_path if selected else None) or
+            (auto_detected["sl_phoenix_path"] if auto_detected else None) or
+            Pathing.select_folder()
+        )
+        self.extension_folder = (
+            (selected.extension_path if selected else None) or
+            (auto_detected["extension_path"] if auto_detected else None) or
+            Pathing.select_folder()
+        )
 
         # Update existing row or create new one (no duplicates)
         if selected:
