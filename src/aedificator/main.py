@@ -17,19 +17,19 @@ class Main():
         # Try auto-detection if not in database
         auto_detected = None
         if not selected or not all([selected.superleme_path, selected.sl_phoenix_path, selected.extension_path]):
-            self.console.print("[info]Auto-detecting project folders...[/info]")
+            self.console.print("[info]Detectando pastas do projeto automaticamente...[/info]")
             auto_detected = Pathing.auto_detect_folders()
             detected_count = sum(1 for v in auto_detected.values() if v)
             if detected_count > 0:
-                self.console.print(f"[success]Auto-detected {detected_count} folders[/success]")
+                self.console.print(f"[success]Detectadas {detected_count} pastas[/success]")
                 if auto_detected["superleme_path"]:
                     self.console.print(f"Superleme: {auto_detected['superleme_path']}")
                 if auto_detected["sl_phoenix_path"]:
                     self.console.print(f"SL Phoenix: {auto_detected['sl_phoenix_path']}")
                 if auto_detected["extension_path"]:
-                    self.console.print(f"Extension: {auto_detected['extension_path']}")
+                    self.console.print(f"Extensão: {auto_detected['extension_path']}")
             else:
-                self.console.print("[warning]No folders auto-detected[/warning]")
+                self.console.print("[warning]Nenhuma pasta detectada automaticamente[/warning]")
 
         # Use database > auto-detection > user selection (in that priority order)
         self.superleme_folder = (
