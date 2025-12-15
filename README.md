@@ -1,309 +1,96 @@
 # Aedificator
 
-Sistema de automação para gerenciar e executar múltiplos projetos (Superleme, SL Phoenix, e Extensão) com suporte a Docker e execução em tempo real.
+Ferramenta de automação para gerenciar múltiplos projetos (Superleme, SL Phoenix, e Extensão) com suporte a Docker, execução em tempo real e gerenciamento centralizado de configurações.
 
-## 🎯 O Que é e Por Que Existe
+## Visão Geral
 
-Aedificator é uma ferramenta de automação criada para resolver os desafios de desenvolver e manter múltiplos projetos simultaneamente, cada um com seu próprio stack tecnológico, configurações de banco de dados e requisitos de ambiente.
+Aedificator automatiza a execução de múltiplos projetos com diferentes requisitos tecnológicos, gerenciando versões de dependências, configurações Docker e ambientes de desenvolvimento de forma centralizada.
 
-### O Problema: Complexidade no Desenvolvimento Multi-Projeto
+### Problema
 
-#### Cenário Real
+Desenvolvimento simultâneo de múltiplos projetos com stacks diferentes:
 
-Imagine que você está desenvolvendo um ecossistema completo:
-- Um aplicativo **Zotonic (Erlang)** rodando PostgreSQL 17 e Erlang 28
-- Um backend **Phoenix (Elixir)** que usa Elixir 1.19.4 e Node.js 25 para assets
-- Uma extensão browser com seu próprio build pipeline em Node.js
+- **Zotonic (Erlang)**: PostgreSQL 17, Erlang 28
+- **Phoenix (Elixir)**: Elixir 1.19.4, Node.js 25
+- **Extensão**: Node.js com pipeline próprio
 
-Cada projeto tem requisitos específicos e muitas vezes **incompatíveis** entre si. Você não pode simplesmente ter Erlang 25 e Erlang 28 instalados nativamente na mesma máquina sem ferramentas como `asdf` ou `mise`. Mesmo assim, trocar versões manualmente é tedioso e propenso a erros.
+Desafios:
+- Conflitos de versão entre projetos (Erlang 25 vs 28, PostgreSQL 14 vs 17)
+- Gerenciamento manual de ambientes via `asdf`, `nvm`, `mise`
+- Comandos Docker longos e repetitivos
+- Configurações inconsistentes entre desenvolvedores
+- Saída bufferizada dificulta depuração em tempo real
+- Logs perdidos quando processos terminam
 
-#### As Dores Diárias
+### Solução
 
-**1. Conflitos de Versão**
-- PostgreSQL 14 vs PostgreSQL 17 - drivers incompatíveis, schemas diferentes
-- Erlang 25 vs Erlang 28 - APIs mudaram, bytecode incompatível
-- Elixir 1.15 vs 1.19 - breaking changes em dependências
-- Node.js 20 vs 25 - ECMAScript features e módulos
+## Funcionalidades
 
-**Solução manual:** Instalar version managers (`asdf`, `nvm`, `mise`), criar profiles, trocar contextos constantemente. Esquecer de trocar? Horas debuggando erros estranhos.
+### 1. Gerenciamento Automático de Versões
 
-**2. Navegação Entre Projetos**
-```bash
-# Workflow típico sem Aedificator:
-cd ~/Projects/zotonic
-asdf shell erlang 28
-make clean && make
-bin/zotonic debug
+Configurações de versões (PostgreSQL, Erlang, Elixir, Node.js) armazenadas em banco SQLite. Antes de cada execução, atualiza automaticamente `docker-compose.yml` via regex:
 
-# Ctrl+C, novo terminal
-cd ~/Projects/sl_phoenix
-asdf shell elixir 1.19.4
-mix deps.get
-mix phx.server
-
-# Ctrl+C, novo terminal
-cd ~/Projects/extension
-nvm use 25
-npm run dev
-
-# E agora tem 3 terminais abertos... qual é qual?
+```python
+# Substitui versões automaticamente
+postgres:16.2-alpine → postgres:17-alpine
 ```
 
-Gerenciar tudo isso manualmente é:
-- ❌ **Propenso a erros** - Esquecer de trocar versões causa bugs sutis
-- ❌ **Tedioso** - Navegar entre pastas, lembrar comandos exatos
-- ❌ **Lento** - Configurar Docker manualmente a cada mudança de versão
-- ❌ **Frustrante** - Logs perdidos quando terminal fecha, saída bufferizada não aparece em tempo real
-- ❌ **Difícil de documentar** - Como explica para novo dev todos os passos?
-- ❌ **Inconsistente** - Cada dev tem configurações diferentes na máquina
+Configuração única via menu interativo, sem edição manual de YAML.
 
-**3. Docker: Salvação ou Complicação?**
+### 2. Interface Centralizada
 
-Docker resolve conflitos de versão isolando ambientes. Mas traz novos desafios:
+Menu interativo com `questionary` para gerenciar todos os projetos:
 
-- **Configuração verbosa**: Cada `docker-compose.yml` tem dezenas de linhas
-- **Versões hardcoded**: Quer mudar PostgreSQL 16→17? Edite YAML manualmente em 5 lugares
-- **Comandos longos**: `docker compose run --rm --service-ports -w /opt/zotonic zotonic bin/zotonic debug`
-- **Debugging difícil**: Saída bufferizada, logs desaparecem quando container morre
-- **Volumes e permissões**: `_build` com owner errado? `EACCES` errors em cascata
-
-**4. Trabalho em Equipe**
-
-Quando múltiplos desenvolvedores trabalham nos mesmos projetos:
-- "Na minha máquina funciona" - mas qual versão você está usando?
-- Onboarding lento - novo dev leva dias configurando ambiente
-- Documentação desatualizada - README diz PostgreSQL 14, projeto já usa 17
-- Inconsistências - cada um tem docker-compose.yml ligeiramente diferente
-
-### A Solução: Aedificator
-
-Aedificator transforma o caos em ordem com uma interface unificada e automação inteligente.
-
-#### Benefícios Principais
-
-**1. ⚙️ Configuração Inteligente de Versões**
-
-**O problema que resolve:**
-Você tem que lembrar qual versão cada projeto usa e atualizar manualmente os arquivos Docker toda vez que muda.
-
-**Como o Aedificator resolve:**
-- Configure **uma única vez** as versões no menu interativo
-- Sistema salva em banco de dados SQLite local
-- **Antes de cada execução**, atualiza automaticamente `docker-compose.yml` com as versões corretas
-- Regex inteligente encontra e substitui versões: `postgres:16.2-alpine` → `postgres:17-alpine`
-
-**Exemplo prático:**
-```bash
-# Você: Configura PostgreSQL 17-alpine no menu
-# Aedificator: Salva no banco de dados
-
-# Você: Executa "Superleme → Executar"
-# Aedificator (automaticamente):
-#   1. Lê config do banco: postgres_version = "17-alpine"
-#   2. Abre docker-compose.yml
-#   3. Substitui: postgres:16 → postgres:17-alpine
-#   4. Salva arquivo
-#   5. Executa: docker compose run zotonic...
-
-# Resultado: Sempre usa a versão correta, sem você precisar editar YAML!
-```
-
-**Economia de tempo:** 5-10 minutos por mudança de versão × N mudanças/mês = horas economizadas
-
----
-
-**2. 🎯 Menu Centralizado e Intuitivo**
-
-**O problema que resolve:**
-Navegar entre pastas, lembrar comandos específicos de cada projeto, abrir múltiplos terminais.
-
-**Como o Aedificator resolve:**
 ```bash
 python -m src.cli
-# Interface interativa aparece:
 # ┌─ Menu Principal ─┐
 # │ Superleme        │
 # │ SL Phoenix       │
 # │ Extensão         │
-# │ ...              │
 # └──────────────────┘
-
-# Escolhe "Superleme"
-# ┌─ Superleme ─────────────┐
-# │ Recompilar (Clean & Make)│
-# │ Executar (debug mode)    │
-# │ Iniciar (start)          │
-# │ Parar (stop)             │
-# │ Status                   │
-# └──────────────────────────┘
 ```
 
-**Benefícios:**
-- ✅ **Um único ponto de entrada** - não precisa lembrar onde está cada projeto
-- ✅ **Comandos prontos** - make, test, lint, build pré-configurados
-- ✅ **Contexto automático** - Aedificator sabe qual diretório usar, qual Docker compose, etc.
-- ✅ **Zero configuração manual** - depois da primeira execução, tudo está salvo
+Comandos pré-configurados por projeto (compilação, testes, execução).
 
-**Economia de tempo:** 30 segundos por comando × 50 comandos/dia = 25 minutos/dia
+### 3. Execução em Tempo Real
 
----
+Saída não-bufferizada com `bufsize=0` e `sys.stdout.flush()`:
 
-**3. 📡 Execução em Tempo Real**
-
-**O problema que resolve:**
-Comandos longos (compilação, testes) não mostram progresso. Você fica no escuro até terminar. Erros aparecem só no final.
-
-**Como o Aedificator resolve:**
 ```python
-# Implementação técnica:
 process = subprocess.Popen(
     command,
+    bufsize=0,  # unbuffered
     stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    bufsize=0,  # UNBUFFERED - crucial!
-    universal_newlines=True
+    stderr=subprocess.STDOUT
 )
 
-# Lê linha por linha e imprime imediatamente
 for line in process.stdout:
     print(line, end='')
-    sys.stdout.flush()      # Força flush imediato
+    sys.stdout.flush()
     log_file.write(line)
-    log_file.flush()
 ```
 
-**Resultado:**
-- ✅ **Feedback instantâneo** - vê cada linha enquanto executa
-- ✅ **Erros destacados** - aparece em vermelho assim que acontece
-- ✅ **Logs salvos** - mesmo se terminal crashar, log está em disco
-- ✅ **Debugging facilitado** - sabe exatamente onde parou
+Logs persistidos em `src/data/logs/` com timestamp.
 
-**Benefícios reais:**
-- Compilação do Zotonic leva 5 minutos? Vê o progresso em tempo real
-- Erro no meio da compilação? Vê imediatamente, não espera 5 minutos
-- Docker pull demorando? Vê o download progredindo
+### 4. Abstração Docker
 
-**Economia de tempo:** Pegar erros cedo = 10-30 minutos economizados por bug
+Encapsula comandos Docker complexos:
 
----
-
-**4. 🐳 Docker Transparente e Inteligente**
-
-**O problema que resolve:**
-Docker é poderoso mas verboso. Comandos longos, flags obscuras, volumes complicados.
-
-**Como o Aedificator resolve:**
-
-**Sem Aedificator:**
 ```bash
-docker compose run \
-  --rm \
-  --service-ports \
-  -w /opt/zotonic \
-  -u 1000:1000 \
-  -e PYTHONUNBUFFERED=1 \
-  zotonic \
-  bash -c 'rm -rf _build && make clean && make'
+# Comando manual
+docker compose run --rm --service-ports -w /opt/zotonic zotonic bin/zotonic debug
 
-# Você tem que:
-# - Lembrar todas as flags
-# - Saber o working directory correto
-# - Saber qual usuário usar
-# - Configurar variáveis de ambiente
+# Via Aedificator
+Menu → Superleme → Executar
 ```
 
-**Com Aedificator:**
-```bash
-# Menu: Superleme → Recompilar (Clean & Make)
-# Aedificator faz tudo automaticamente:
-# - Envolve comando com Docker
-# - Adiciona flags corretas (--verbose, --progress=plain)
-# - Configura working directory
-# - Gerencia permissões
-# - Remove volumes órfãos
-```
+Configuração automática de working directories, permissões e variáveis de ambiente.
 
-**Funcionalidades extras:**
-- ✅ **Detecção automática** - sabe quando usar Docker (via config no banco)
-- ✅ **Cleanup inteligente** - remove volumes órfãos antes de rebuild
-- ✅ **Permissões corretas** - cria `_build` como user 1000:1000, não root
-- ✅ **Flags verbose** - debugging facilitado com `--verbose --progress=plain`
+### 5. Execução Paralela
 
-**Benefícios técnicos:**
-- Evita "device or resource busy" gerenciando volumes corretamente
-- Evita permission denied criando diretórios com ownership correto
-- Logs completos com saída verbose do Docker
+Gerencia múltiplos processos com monitoramento e cleanup via SIGTERM.
 
----
-
-**5. 🚀 Execução Múltipla**
-
-**O problema que resolve:**
-Frontend precisa de backend rodando. Backend precisa de banco. Tudo tem que estar up ao mesmo tempo.
-
-**Como o Aedificator resolve:**
-```bash
-# Menu: Executar Múltiplos → Superleme + SL Phoenix (dev)
-
-# Aedificator (automaticamente):
-# - Inicia Zotonic em background
-# - Inicia Phoenix em background
-# - Monitora ambos
-# - Mostra status em tempo real
-# - Ctrl+C mata os dois gracefully
-```
-
-**Uso prático:**
-```
-┌─ Processos Executando ─┐
-│ [PID 1234] Zotonic      │ ✅ Running
-│ [PID 5678] Phoenix      │ ✅ Running
-│                          │
-│ Pressione Ctrl+C para   │
-│ parar todos os processos│
-└──────────────────────────┘
-```
-
-**Benefícios:**
-- ✅ **Gerenciamento centralizado** - um processo controla todos
-- ✅ **Cleanup automático** - Ctrl+C mata tudo gracefully (SIGTERM)
-- ✅ **Logs separados** - cada projeto tem seu próprio arquivo de log
-- ✅ **Ideal para dev** - simula ambiente de produção localmente
-
----
-
-#### 🎁 Benefícios Adicionais
-
-**Reprodutibilidade**
-- Configurações no banco = ambiente reproduzível
-- Novo dev: clone repo + `python -m src.cli` = ambiente pronto
-- CI/CD: mesmo comando funciona em qualquer máquina
-
-**Documentação Viva**
-- Menu mostra todos os comandos disponíveis
-- Não precisa consultar README para saber como executar
-- Comandos são auto-documentados na interface
-
-**Consistência Entre Desenvolvedores**
-- Todos usam mesmo Aedificator = mesmas versões, mesmos comandos
-- Elimina "na minha máquina funciona"
-- Onboarding: horas → minutos
-
-**Histórico e Auditoria**
-- Logs com timestamp preservados
-- Sabe exatamente o que foi executado e quando
-- Debugging retroativo facilitado
-
-**Manutenibilidade**
-- Mudou versão do PostgreSQL? Uma linha no banco
-- Novo comando no projeto? Adiciona no menu
-- Centralização = menos lugares para atualizar
-
-## 💡 Como Funciona
-
-O Aedificator segue um fluxo simples mas poderoso:
-
-### Arquitetura
+## Arquitetura
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -339,317 +126,47 @@ O Aedificator segue um fluxo simples mas poderoso:
 └─────────────────────────────────────────────────────┘
 ```
 
-### Fluxo de Execução Detalhado
+## Fluxo de Execução
 
-**1. Inicialização (Primeira Execução)**
-```bash
-python -m src.cli
-```
+### Inicialização
 
-O que acontece:
-- Detecta automaticamente pastas dos projetos via `pathing.main`
-- Pergunta interativamente (via `questionary`):
-  - "Usar Docker para Superleme?" → salva em `dockerconfiguration.use_docker`
-  - "Versão do PostgreSQL?" → salva em `dockerconfiguration.postgres_version`
-  - "Versão do Erlang?" → salva em `dockerconfiguration.languages` (JSON)
-- Cria banco SQLite em `src/data/aedificator.db`
-- Gera tabelas: `paths`, `dockerconfiguration`
+1. Detecção automática de projetos via `pathing.main`
+2. Configuração interativa (primeira execução):
+   - Uso de Docker por projeto
+   - Versões de dependências (PostgreSQL, Erlang, Elixir, Node.js)
+3. Persistência em SQLite (`src/data/aedificator.db`)
 
-**2. Persistência de Configurações**
+### Schema do Banco
+
 ```sql
--- Exemplo de dados salvos:
-INSERT INTO dockerconfiguration VALUES (
-  1,                           -- id
-  'superleme',                 -- project_name
-  1,                           -- use_docker (boolean)
-  '17-alpine',                 -- postgres_version
-  '/path/to/docker-compose.yml', -- compose_file
-  '{"erlang": "28", "postgresql": "17-alpine"}' -- languages (JSON)
+CREATE TABLE dockerconfiguration (
+    id INTEGER PRIMARY KEY,
+    project_name TEXT,
+    use_docker INTEGER,
+    postgres_version TEXT,
+    compose_file TEXT,
+    languages TEXT  -- JSON
 );
 ```
 
-**3. Atualização Automática de Docker Compose**
+### Atualização de Docker Compose
 
-Antes de cada comando, o Aedificator:
+Regex aplicado antes de cada execução:
 
 ```python
-# executor.py - _update_docker_compose_versions()
 def _update_docker_compose_versions(cwd, docker_config):
-    compose_file = os.path.join(cwd, 'docker-compose.yml')
-
-    # Lê arquivo
-    with open(compose_file, 'r') as f:
-        content = f.read()
-
-    # Substitui versão PostgreSQL com regex
-    postgres_version = docker_config.get('postgres_version')
     content = re.sub(
         r'postgres:[0-9]+(\.[0-9]+)?(-[a-zA-Z0-9]+)?',
-        f'postgres:{postgres_version}',
+        f'postgres:{docker_config["postgres_version"]}',
         content
     )
-
-    # Salva de volta
-    with open(compose_file, 'w') as f:
-        f.write(content)
 ```
 
-**Exemplo real:**
-```yaml
-# Antes:
-services:
-  postgres:
-    image: postgres:16.2-alpine
+### Logging
 
-# Depois (automaticamente):
-services:
-  postgres:
-    image: postgres:17-alpine
-```
+Logs em `src/data/logs/{projeto}_{timestamp}.log` com saída duplicada (console + arquivo).
 
-**4. Execução com Saída em Tempo Real**
-
-```python
-# executor.py - run_command()
-env = os.environ.copy()
-env['PYTHONUNBUFFERED'] = '1'
-
-process = subprocess.Popen(
-    wrapped_command,
-    shell=True,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    bufsize=0,  # CRÍTICO: unbuffered
-    universal_newlines=True,
-    env=env
-)
-
-# Lê linha por linha
-with open(log_filename, 'w') as log_file:
-    for line in process.stdout:
-        print(line, end='')        # Console
-        sys.stdout.flush()         # Força flush
-        log_file.write(line)       # Log file
-        log_file.flush()           # Salva no disco
-```
-
-**5. Logging Persistente**
-```
-src/data/logs/
-├── superleme_20251215_132226.log    # Timestamp no filename
-├── superleme_20251215_145801.log
-└── sl_phoenix_20251215_133045.log
-```
-
----
-
-### Exemplo Completo: Fluxo de "Recompilar Superleme"
-
-```
-┌──────────────────────────────────────────────────────┐
-│ USUÁRIO: Seleciona "Superleme → Recompilar"         │
-└────────────────────┬─────────────────────────────────┘
-                     │
-                     ▼
-┌──────────────────────────────────────────────────────┐
-│ MENU.PY: show_superleme_menu()                       │
-│ - Identifica: zotonic_root = /home/user/zotonic      │
-│ - Carrega: docker_config do banco de dados          │
-│   └─ use_docker=True, postgres_version='17-alpine'  │
-└────────────────────┬─────────────────────────────────┘
-                     │
-                     ▼
-┌──────────────────────────────────────────────────────┐
-│ EXECUTOR.PY: Preparação                              │
-│ 1. Para containers órfãos                            │
-│    docker compose down --volumes --remove-orphans    │
-│                                                      │
-│ 2. Remove volume zotonic_build                       │
-│    docker volume rm zotonic_build                    │
-│                                                      │
-│ 3. Cria _build com permissões corretas               │
-│    docker compose run --user root zotonic \          │
-│      bash -c 'mkdir -p _build && chown 1000:1000...' │
-└────────────────────┬─────────────────────────────────┘
-                     │
-                     ▼
-┌──────────────────────────────────────────────────────┐
-│ EXECUTOR.PY: Atualização Docker Compose              │
-│ - Abre: /home/user/zotonic/docker-compose.yml        │
-│ - Regex: postgres:16 → postgres:17-alpine            │
-│ - Salva arquivo atualizado                          │
-└────────────────────┬─────────────────────────────────┘
-                     │
-                     ▼
-┌──────────────────────────────────────────────────────┐
-│ EXECUTOR.PY: Monta comando Docker                    │
-│                                                      │
-│ wrapped_command = (                                  │
-│   "docker compose run --rm zotonic "                 │
-│   "bash -c 'make clean && make'"                     │
-│ )                                                    │
-└────────────────────┬─────────────────────────────────┘
-                     │
-                     ▼
-┌──────────────────────────────────────────────────────┐
-│ EXECUTOR.PY: Execução                                │
-│                                                      │
-│ process = subprocess.Popen(                          │
-│   wrapped_command,                                   │
-│   bufsize=0  # unbuffered                            │
-│ )                                                    │
-│                                                      │
-│ # Loop de saída em tempo real                       │
-│ for line in process.stdout:                          │
-│   print(line)           # → Terminal                 │
-│   log_file.write(line)  # → logs/superleme_....log  │
-│   flush()                                            │
-└────────────────────┬─────────────────────────────────┘
-                     │
-                     ▼
-┌──────────────────────────────────────────────────────┐
-│ RESULTADO                                            │
-│                                                      │
-│ ✅ Compilação rodando com:                            │
-│    - PostgreSQL 17 (versão correta)                  │
-│    - Erlang 28 (versão correta)                      │
-│    - Permissões corretas (_build owned by 1000:1000)│
-│    - Saída em tempo real no terminal                │
-│    - Log salvo em disco                              │
-│                                                      │
-│ 🚀 Sem você precisar:                                 │
-│    - Lembrar comandos Docker complexos               │
-│    - Editar YAML manualmente                         │
-│    - Navegar entre diretórios                        │
-│    - Debuggar problemas de permissão                 │
-└──────────────────────────────────────────────────────┘
-```
-
----
-
-### Casos de Uso Reais
-
-#### 1. **Desenvolvimento Local vs. Docker (Flexibilidade)**
-
-**Cenário:** Você tem um laptop com Erlang instalado nativamente e um desktop onde usa só Docker.
-
-**Como o Aedificator resolve:**
-```bash
-# Laptop (nativo):
-Menu → Configurações → Docker Superleme → Desativar
-# Agora: Menu → Superleme → Executar
-# Executa: bin/zotonic debug (nativo)
-
-# Desktop (Docker):
-Menu → Configurações → Docker Superleme → Ativar
-# Agora: Menu → Superleme → Executar
-# Executa: docker compose run zotonic bin/zotonic debug
-```
-
-**Benefício:** Mesmo código, mesmo Aedificator, ambientes diferentes. Zero mudança no workflow.
-
----
-
-#### 2. **Migrações de Banco de Dados (Múltiplas Versões)**
-
-**Cenário:** Você mantém um projeto legado (PostgreSQL 14) e está migrando para novo projeto (PostgreSQL 17).
-
-**Problema sem Aedificator:**
-```bash
-# Terminal 1: Projeto legado
-docker compose down
-# edita docker-compose.yml: postgres:17 → postgres:14
-docker compose up -d
-
-# Terminal 2: Projeto novo
-docker compose down
-# edita docker-compose.yml: postgres:14 → postgres:17
-docker compose up -d
-
-# Erro: Esqueceu de trocar? Banco usa schema errado, migrations falham.
-```
-
-**Com Aedificator:**
-- Superleme configurado com PostgreSQL 14
-- SL Phoenix configurado com PostgreSQL 17
-- Aedificator atualiza YAML automaticamente antes de cada execução
-- **Impossível** usar versão errada
-
----
-
-#### 3. **Conflitos de Versão de Runtime (Erlang 25 vs 28)**
-
-**Cenário:** Projeto A usa Erlang 25 (bytecode antigo), Projeto B usa Erlang 28 (bytecode novo).
-
-**Problema:** Instalar ambas versões nativamente causa conflitos. `asdf` resolve, mas trocar manualmente é tedioso.
-
-**Com Aedificator + Docker:**
-- Cada projeto roda em container isolado
-- Erlang 25 no container do Projeto A
-- Erlang 28 no container do Projeto B
-- Aedificator gerencia qual container usar
-- **Zero** conflito
-
----
-
-#### 4. **Onboarding de Novos Desenvolvedores**
-
-**Sem Aedificator:**
-```
-Dia 1: Instala Erlang, Elixir, PostgreSQL, Node.js
-Dia 2: Debugga conflitos de versão, path issues
-Dia 3: Finalmente roda o projeto... mas versão errada
-Dia 4: "Na minha máquina não funciona"
-Dia 5: Desiste e pede ajuda ao senior dev
-```
-
-**Com Aedificator:**
-```bash
-# Dia 1:
-git clone projeto
-cd projeto/Aedificator
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-python -m src.cli
-# Menu: tudo está pré-configurado
-# Executa projeto em 30 minutos
-```
-
-**Economia:** 4 dias → 30 minutos
-
----
-
-#### 5. **Debugging em Produção (Logs Históricos)**
-
-**Cenário:** Bug apareceu ontem. Você precisa saber exatamente o que foi executado.
-
-**Com Aedificator:**
-```bash
-ls src/data/logs/
-# superleme_20251214_143022.log  ← Ontem às 14:30
-# superleme_20251215_091045.log  ← Hoje às 09:10
-
-cat src/data/logs/superleme_20251214_143022.log
-# Vê exatamente:
-# - Qual comando foi executado
-# - Qual output teve
-# - Onde parou/falhou
-```
-
-**Benefício:** Auditoria completa, debugging retroativo
-
-## 📋 Características
-
-- **Menu Interativo**: Interface de linha de comando intuitiva com questionary
-- **Suporte Docker**: Execução de comandos dentro de containers Docker com configuração automática
-- **Execução em Tempo Real**: Visualize a saída de comandos enquanto executam (stdout/stderr em tempo real)
-- **Logs Persistentes**: Todos os comandos são salvos em `src/data/logs/` com timestamp
-- **Configuração de Versões**: Configure versões de linguagens (Erlang, Elixir, PostgreSQL, Node.js) que atualizam automaticamente o docker-compose.yml
-- **Detecção Automática**: Encontra pastas de projetos automaticamente
-- **Execução Múltipla**: Execute múltiplos projetos simultaneamente com painel live
-- **Modo Verbose**: Docker compose com flags --verbose e --progress=plain para debugging
-
-## 🚀 Instalação
+## Instalação
 
 ```bash
 # Clone o repositório
@@ -664,14 +181,14 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 📦 Dependências
+## Dependências
 
 - Python 3.14+
-- peewee (ORM para SQLite)
-- rich (Interface de terminal colorida)
-- questionary (Menus interativos)
+- peewee (ORM SQLite)
+- rich (formatação de terminal)
+- questionary (menus interativos)
 
-## 🎯 Uso
+## Uso
 
 ```bash
 # Ative o ambiente virtual
@@ -683,141 +200,87 @@ python -m src.cli
 
 ### Primeira Execução
 
-Na primeira execução, o programa irá:
+1. Cria banco de dados em `src/data/aedificator.db`
+2. Detecta pastas dos projetos
+3. Solicita configurações:
+   - Uso de Docker por projeto
+   - Versões (Erlang, PostgreSQL, Elixir, Node.js)
 
-1. Criar banco de dados em `src/data/aedificator.db`
-2. Detectar automaticamente as pastas dos projetos
-3. Perguntar se deseja usar Docker
-4. Solicitar versões de linguagens (Erlang, PostgreSQL, Elixir, Node.js)
-5. Salvar configurações no banco de dados
+### Menu
 
-### Menu Principal
+Operações disponíveis por projeto:
 
-O menu oferece as seguintes opções:
+**Superleme (Zotonic)**
+- Executar (modo depuração)
+- Iniciar/Parar
+- Compilar
+- Status
 
-- **Superleme**: Gerenciar projeto Zotonic
-  - Executar (debug mode)
-  - Iniciar (start)
-  - Parar (stop)
-  - Status
-  - Compilar (make)
+**SL Phoenix**
+- Servidor de desenvolvimento
+- Configuração inicial
+- Testes, linting, formatação
+- Compilação de recursos
 
-- **SL Phoenix**: Gerenciar projeto Phoenix
-  - make server
-  - make setup
-  - make install
-  - make clean
-  - make test
-  - make lint
-  - make format
-  - make assets
+**Extensão**
+- Desenvolvimento (com monitoramento)
+- Compilação (desenvolvimento/produção)
+- Testes, análise estática
 
-- **Extensão**: Gerenciar extensão
-  - make dev
-  - make watch
-  - make build
-  - make production
-  - make lint
-  - make test
-  - make clean
-  - make install
+**Execução Múltipla**
+- Configurações pré-definidas (Superleme + Phoenix)
+- Configuração personalizada
 
-- **Executar Múltiplos**: Execute vários projetos simultaneamente
-  - Superleme + SL Phoenix (dev)
-  - Superleme + SL Phoenix (build)
-  - Custom (escolha os projetos e comandos)
+**Configurações**
+- Versões de linguagens
+- Configurações Docker
 
-- **Configurações**
-  - Versões de Linguagens - Superleme
-  - Versões de Linguagens - SL Phoenix
-  - Configurações Docker - Superleme
-  - Configurações Docker - SL Phoenix
+## Docker
 
-## 🐳 Docker
+### Atualização Automática de docker-compose.yml
 
-### Configuração Automática
+Antes de cada execução, versões configuradas são aplicadas via regex ao `docker-compose.yml`.
 
-O Aedificator atualiza automaticamente o `docker-compose.yml` com as versões configuradas no banco de dados antes de executar qualquer comando.
+### Working Directories
 
-**Exemplo:**
-- Você configura PostgreSQL 17-alpine no menu
-- Ao executar Superleme, o programa:
-  1. Lê a configuração do banco de dados
-  2. Atualiza `postgres:16.2-alpine` → `postgres:17-alpine` no docker-compose.yml
-  3. Executa o comando Docker com a versão correta
+- **Superleme (Zotonic)**: `/opt/zotonic`
+- **SL Phoenix**: `/app`
+- **Extensão**: `/workspace` ou `/app`
 
-### Diretórios de Trabalho
+Configurado automaticamente com flag `-w`.
 
-Cada projeto usa um diretório de trabalho específico dentro do container:
+### Flags
 
-- **Superleme (Zotonic)**: `/opt/zotonic` - onde o Zotonic espera encontrar seus arquivos
-- **SL Phoenix**: `/app` - convenção padrão para aplicações Elixir/Phoenix
-- **Extensão**: `/workspace` ou `/app` - dependendo da configuração
+Comandos executados com:
+- `--ansi=never`: Remove códigos ANSI
+- `--verbose`: Logs detalhados
+- `--progress=plain`: Progresso em texto plano
+- `stdbuf -o0 -e0`: Saída unbuffered
 
-O Aedificator configura automaticamente o working directory correto com a flag `-w` no comando Docker.
+## Logs
 
-📖 **Documentação completa:** Veja [DOCKER_DIRECTORIES.md](docs/DOCKER_DIRECTORIES.md) para detalhes sobre configuração de diretórios, volumes, permissões e troubleshooting.
+Salvos em `src/data/logs/{projeto}_{timestamp}.log` com saída completa (stdout + stderr).
 
-### Flags Verbose
+## Banco de Dados
 
-Todos os comandos Docker são executados com:
-- `--ansi=never`: Remove códigos ANSI que causam buffering
-- `--verbose`: Mostra logs detalhados
-- `--progress=plain`: Progresso em texto plano sem animações
-- `stdbuf -o0 -e0`: Força saída sem buffer para logs em tempo real
-
-## 📊 Logs
-
-Todos os comandos executados são salvos em:
-
-```
-src/data/logs/
-├── superleme_20251215_132226.log
-├── sl_phoenix_20251215_133045.log
-└── extension_20251215_134512.log
-```
-
-Os logs incluem:
-- Saída completa (stdout + stderr)
-- Timestamp no nome do arquivo
-- Erros são impressos em vermelho no console em tempo real
-
-## 🗄️ Banco de Dados
-
-Localizado em `src/data/aedificator.db` (SQLite)
+SQLite em `src/data/aedificator.db`
 
 ### Tabelas
 
-**Paths**: Armazena caminhos dos projetos
-- `superleme_path`
-- `sl_phoenix_path`
-- `extension_path`
+**paths**: Caminhos dos projetos
+**dockerconfiguration**: Configurações Docker e versões (JSON em campo `languages`)
 
-**DockerConfiguration**: Configurações Docker por projeto
-- `project_name` (superleme, sl_phoenix)
-- `use_docker` (boolean)
-- `postgres_version` (ex: 17-alpine)
-- `compose_file` (caminho para docker-compose.yml)
-- `languages` (JSON com versões: erlang, elixir, node, postgresql)
+Resetar: `rm src/data/aedificator.db`
 
-### Resetar Banco de Dados
+## Interface
 
-```bash
-rm src/data/aedificator.db
-# Na próxima execução, o programa irá recriar e perguntar todas as configurações
-```
+Rich com tema personalizado:
+- `[info]`: Cyan
+- `[success]`: Verde
+- `[warning]`: Amarelo
+- `[error]`: Vermelho
 
-## 🎨 Interface
-
-A interface usa Rich para formatação colorida:
-
-- **[info]** Cyan: Informações
-- **[success]** Verde: Sucesso
-- **[warning]** Amarelo: Avisos
-- **[error]** Vermelho: Erros
-- Texto normal: Cor padrão do terminal (compatível com light mode)
-
-## 🔧 Estrutura do Projeto
+## Estrutura
 
 ```
 Aedificator/
@@ -844,68 +307,58 @@ Aedificator/
 └── requirements.txt            # Dependências Python
 ```
 
-## 🤝 Contribuindo
+## Contribuindo
 
-Este projeto é mantido pela Abensoft. Para contribuir:
+Mantido pela Abensoft.
 
 1. Fork o projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
-3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
-4. Push para a branch (`git push origin feature/AmazingFeature`)
-5. Abra um Pull Request
+2. Crie branch: `git checkout -b feature/nome`
+3. Commit: `git commit -m 'Descrição'`
+4. Push: `git push origin feature/nome`
+5. Abra Pull Request
 
-## 📝 Licença
+## Licença
 
-Propriedade da Abensoft. Todos os direitos reservados.
+Propriedade da Abensoft.
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
-### Logs aparecem na diagonal ou com caracteres estranhos
-**Problema:** Saída do Docker aparece em diagonal ou com formatação estranha
+### Saída com formatação estranha
 
-**Causa:** Caracteres de controle (carriage return `\r`) misturados com newlines
+**Causa:** Caracteres `\r` (carriage return) misturados com newlines
 
-**Solução:** O Aedificator remove automaticamente caracteres `\r` e força line buffering. Se ainda tiver problemas:
+**Solução:** Aedificator remove `\r` automaticamente. Se persistir, verifique se `stdbuf` está instalado:
 ```bash
-# Verifique se stdbuf está instalado
-which stdbuf
-
-# Se não estiver, instale coreutils
-sudo apt-get install coreutils  # Debian/Ubuntu
-sudo yum install coreutils      # CentOS/RHEL
+which stdbuf || sudo apt-get install coreutils
 ```
 
-### Logs não aparecem
-- Verifique se o diretório `src/data/logs/` existe
-- O programa cria automaticamente, mas pode haver problema de permissões
+### Logs ausentes
 
-### Docker não está usando versão correta
-- Verifique a configuração no menu "Configurações"
-- O programa atualiza o docker-compose.yml automaticamente antes de cada execução
-- Verifique os logs para ver qual comando Docker foi executado
+Verifique permissões em `src/data/logs/`.
 
-### Comandos Docker não encontram arquivos
-**Problema:** Erro "file not found" ou "command not found" dentro do container
+### Versão Docker incorreta
 
-**Causa:** Working directory incorreto dentro do container
+1. Verifique configuração no menu
+2. Confirme que `docker-compose.yml` foi atualizado (veja logs)
 
-**Solução:** O Aedificator configura automaticamente:
+### Arquivos não encontrados no container
+
+**Causa:** Working directory incorreto
+
+**Solução:** Verifique flag `-w` nos logs:
 - Zotonic: `-w /opt/zotonic`
 - Phoenix: `-w /app`
 
-Verifique no log se o comando inclui o `-w` correto.
+### Saída não em tempo real
 
-### Saída não aparece em tempo real
-- O programa usa `bufsize=1` (line buffered) e `flush()` após cada linha
-- Comandos Docker incluem `stdbuf -o0 -e0` para forçar unbuffered
-- Se ainda tiver problema, verifique se o comando não está bufferizando internamente
+Verifique se comando usa `bufsize=0` e `stdbuf -o0 -e0`.
 
-### Banco de dados corrompido
+### Banco corrompido
+
 ```bash
 rm src/data/aedificator.db
-# Reinicie o programa
 ```
 
-## 📞 Suporte
+## Suporte
 
-Para suporte, entre em contato com a equipe Abensoft.
+Contato: equipe Abensoft.
