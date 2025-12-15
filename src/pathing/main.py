@@ -3,6 +3,7 @@ import tempfile
 import os
 import questionary
 from aedificator import console
+from aedificator.memory import Paths
 
 
 class Pathing():
@@ -10,7 +11,7 @@ class Pathing():
         pass
 
     @staticmethod
-    def select_superleme_folder():
+    def select_folder():
         """Select a folder using ranger-fm."""
         console.print("\n[info]Abrindo navegador de arquivos Ranger...[/info]")
         console.print("[muted]Navegação: ↑/↓ para mover, → para entrar na pasta, ← para voltar[/muted]")
@@ -32,5 +33,13 @@ class Pathing():
         return questionary.path("Path to config folder:").ask()
 
     @staticmethod
-    def find_superleme_folder():
-        return None 
+    def find_folders():
+        """Return the stored Paths row from the database if it exists, else None."""
+        try:
+            query = Paths.select().limit(1)
+            rows = list(query)
+            if rows:
+                return rows[0]
+        except Exception:
+            return None
+        return None
