@@ -9,11 +9,6 @@ Aedificator automatiza a execução de múltiplos projetos com diferentes requis
 ### Problema
 
 Desenvolvimento simultâneo de múltiplos projetos com stacks diferentes:
-
-- **Zotonic (Erlang)**: PostgreSQL 17, Erlang 28
-- **Phoenix (Elixir)**: Elixir 1.19.4, Node.js 25
-- **Extensão**: Node.js com pipeline próprio
-
 Desafios:
 - Conflitos de versão entre projetos (Erlang 25 vs 28, PostgreSQL 14 vs 17)
 - Gerenciamento manual de ambientes via `asdf`, `nvm`, `mise`
