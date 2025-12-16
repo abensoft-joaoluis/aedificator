@@ -4,6 +4,8 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 import questionary
 import os
+import subprocess
+import glob
 from . import console
 from .memory import initialize_database, Paths, DockerConfiguration
 from .menu import Menu
@@ -47,6 +49,8 @@ class Main():
         # Configure Docker for projects on first install
         docker_configs = {}
         if is_first_install:
+            self._download_database_backup()
+            
             self.console.print("\n[info]Configuração de ambiente Docker[/info]")
             use_docker = questionary.confirm(
                 "Deseja usar Docker para executar os projetos?",
@@ -182,5 +186,116 @@ class Main():
             docker_configs=docker_configs
         )
         menu.show_main_menu()
+
+    def _download_database_backup(self):
+        """Download database backup via SCP on first install"""
+        self.console.print("\n[info]Configuração de backup do banco de dados[/info]")
+        
+        download_backup = questionary.confirm(
+            "Deseja baixar o backup do banco de dados Superleme?",
+            default=True
+        ).ask()
+        
+        if not download_backup:
+            self.console.print("[info]Backup não será baixado[/info]")
+            return
+        
+        # Find .pem file in ~/.ssh
+        ssh_dir = os.path.expanduser("~/.ssh")
+        pem_files = glob.glob(os.path.join(ssh_dir, "*.pem"))
+        
+        if not pem_files:
+            self.console.print("[warning]Nenhum arquivo .pem encontrado em ~/.ssh[/warning]")
+            self.console.print("[info]Selecione o arquivo .pem usando o navegador de arquivos[/info]")
+            pem_file = Pathing.select_file(ssh_dir)
+            
+            if not pem_file or not os.path.exists(pem_file):
+                self.console.print("[error]Arquivo .pem não encontrado. Backup não será baixado.[/error]")
+                return
+        elif len(pem_files) == 1:
+            pem_file = pem_files[0]
+            self.console.print(f"[success]Arquivo .pem encontrado: {pem_file}[/success]")
+        else:
+            # Multiple .pem files found, let user choose with file browser
+            self.console.print(f"[info]Encontrados {len(pem_files)} arquivos .pem em ~/.ssh[/info]")
+            self.console.print("[info]Selecione o arquivo .pem desejado usando o navegador de arquivos[/info]")
+            pem_file = Pathing.select_file(ssh_dir)
+            
+            if not pem_file or not os.path.exists(pem_file):
+                self.console.print("[error]Arquivo .pem não selecionado. Backup não será baixado.[/error]")
+                return
+        
+        # List files in remote directory
+        remote_host = "ubuntu@teste1x.superleme.com.br"
+        remote_dir = "/home/ubuntu/bkps"
+        
+        self.console.print(f"\n[info]Listando arquivos em {remote_host}:{remote_dir}[/info]")
+        
+        try:
+            ssh_command = f'ssh -i "{pem_file}" {remote_host} "ls -1 {remote_dir}/*.backup"'
+            result = subprocess.run(
+                ssh_command,
+                shell=True,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            
+            # Parse filenames from output
+            files = [os.path.basename(f.strip()) for f in result.stdout.strip().split('\n') if f.strip()]
+            
+            if not files:
+                self.console.print("[error]Nenhum arquivo .backup encontrado no servidor[/error]")
+                return
+            
+            # Let user select file
+            selected_file = questionary.select(
+                "Selecione o arquivo de backup para baixar:",
+                choices=files
+            ).ask()
+            
+            if not selected_file:
+                self.console.print("[info]Nenhum arquivo selecionado. Backup não será baixado.[/info]")
+                return
+            
+        except subprocess.CalledProcessError as e:
+            self.console.print(f"[error]Erro ao listar arquivos no servidor:[/error]")
+            self.console.print(f"[error]{e.stderr}[/error]")
+            return
+        except Exception as e:
+            self.console.print(f"[error]Erro ao conectar ao servidor: {str(e)}[/error]")
+            return
+        
+        # Use default destination directory
+        dest_dir = os.path.expanduser("~/bkps")
+        
+        # Create destination directory if it doesn't exist
+        os.makedirs(dest_dir, exist_ok=True)
+        
+        remote_file = f"{remote_dir}/{selected_file}"
+        scp_command = f'scp -i "{pem_file}" {remote_host}:{remote_file} "{dest_dir}/"'
+        
+        self.console.print(f"\n[info]Executando: {scp_command}[/info]")
+        
+        try:
+            result = subprocess.run(
+                scp_command,
+                shell=True,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            
+            backup_file = os.path.join(dest_dir, selected_file)
+            if os.path.exists(backup_file):
+                self.console.print(f"[success]Backup baixado com sucesso: {backup_file}[/success]")
+            else:
+                self.console.print("[warning]Comando executado, mas arquivo não encontrado no destino[/warning]")
+                
+        except subprocess.CalledProcessError as e:
+            self.console.print(f"[error]Erro ao baixar backup:[/error]")
+            self.console.print(f"[error]{e.stderr}[/error]")
+        except Exception as e:
+            self.console.print(f"[error]Erro ao executar comando SCP: {str(e)}[/error]")
 
     

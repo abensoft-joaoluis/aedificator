@@ -1,0 +1,10 @@
+How to create superleme's database 
+
+
+CREATE ROLE superleme_ro;
+CREATE ROLE superleme;
+
+CREATE DATABASE superleme OWNER superleme;
+scp -i ~/.ssh/teste1x.pem ubuntu@teste1x.superleme.com.br:/home/ubuntu/bkps/superleme_20251021.backup .
+pg_restore --host "localhost" --port 5555 --username "postgres" --verbose -d superleme bkps/superleme_20240701.backup
+
