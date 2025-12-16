@@ -67,3 +67,5 @@ node_modules
 aedificator.db
 data/
 logs/*.log
+_build
+build
