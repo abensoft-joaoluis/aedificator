@@ -4,6 +4,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 import questionary
 import os
+import sys
 import subprocess
 import glob
 from . import console
@@ -274,18 +275,21 @@ class Main():
         backup_file = os.path.join(data_dir, "backup.backup")
         
         remote_file = f"{remote_dir}/{selected_file}"
-        scp_command = f'scp -i "{pem_file}" {remote_host}:{remote_file} "{backup_file}"'
+        scp_command = f'scp -v -i "{pem_file}" {remote_host}:{remote_file} "{backup_file}"'
         
-        self.console.print(f"\n[info]Executando: {scp_command}[/info]")
+        self.console.print(f"\n[info]Executando: {scp_command}[/info]\n")
+        sys.stdout.flush()
+        sys.stderr.flush()
         
         try:
             result = subprocess.run(
                 scp_command,
                 shell=True,
-                check=True,
-                capture_output=True,
-                text=True
+                check=True
             )
+            
+            sys.stdout.flush()
+            sys.stderr.flush()
             
             if os.path.exists(backup_file):
                 self.console.print(f"[success]Backup baixado com sucesso: {backup_file}[/success]")
