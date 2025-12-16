@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_submodules
 
-hiddenimports = ['peewee', 'rich', 'questionary', 'easygui']
+hiddenimports = ['peewee', 'rich', 'questionary']
 hiddenimports += collect_submodules('aedificator')
 hiddenimports += collect_submodules('pathing')
 
@@ -15,7 +15,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['easygui', 'tkinter'],
     noarchive=False,
     optimize=0,
 )

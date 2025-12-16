@@ -49,7 +49,8 @@ build: install ## Compila com PyInstaller
 		--hidden-import=peewee \
 		--hidden-import=rich \
 		--hidden-import=questionary \
-		--hidden-import=easygui \
+		--exclude-module=easygui \
+		--exclude-module=tkinter \
 		--collect-submodules=aedificator \
 		--collect-submodules=pathing \
 		$(ENTRY_POINT)
