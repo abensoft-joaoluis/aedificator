@@ -1,5 +1,4 @@
 from aedificator.main import Main
-from easygui import diropenbox
 
 if __name__ == "__main__":
     try: 

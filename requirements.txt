@@ -1,5 +1,4 @@
 rich
-easygui
 questionary
 ranger-fm
 peewee
