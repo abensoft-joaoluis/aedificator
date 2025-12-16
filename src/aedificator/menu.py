@@ -868,6 +868,17 @@ class Menu:
             console.print("[info]Aguardando PostgreSQL ficar pronto...[/info]")
             Executor.run_command("sleep 5", zotonic_root, background=False, use_docker=False)
             
+            # Create roles first
+            console.print("[info]Criando roles...[/info]")
+            Executor.run_command(
+                'docker compose exec -T postgres psql -U postgres -c "DROP ROLE IF EXISTS superleme_ro; CREATE ROLE superleme_ro;"',
+                zotonic_root, background=False, use_docker=False
+            )
+            Executor.run_command(
+                'docker compose exec -T postgres psql -U postgres -c "DROP ROLE IF EXISTS superleme; CREATE ROLE superleme WITH LOGIN PASSWORD \'superleme\';"',
+                zotonic_root, background=False, use_docker=False
+            )
+            
             # Drop and recreate database
             console.print("[info]Recriando banco de dados...[/info]")
             Executor.run_command(
@@ -879,9 +890,8 @@ class Menu:
                 zotonic_root, background=False, use_docker=False
             )
             
-            # Restore backup
             console.print("[info]Restaurando backup...[/info]")
-            restore_cmd = f'cat "{backup_file}" | docker compose exec -T postgres pg_restore --host localhost --port 5432 --username postgres --verbose -d superleme'
+            restore_cmd = f'cat "{backup_file}" | docker compose exec -T postgres pg_restore -U postgres --verbose -d superleme'
             Executor.run_command(restore_cmd, zotonic_root, background=False, use_docker=False)
         else:
             # Local restoration
