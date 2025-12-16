@@ -579,3 +579,4 @@ sys.stdout.flush()
 ---
 
 Claude, siga estas instruções rigorosamente ao trabalhar neste projeto. 🤖
+Don't touch docker-compose.yml. It is a temporary file.

@@ -345,3 +345,4 @@ docker build -t aedificator-zotonic -f /tmp/Dockerfile.zotonic /home/kaldwin/Abe
 python -c "from src.aedificator.docker.templates import DockerTemplates; print(DockerTemplates.docker_compose('superleme','17-alpine'))" > /tmp/docker-compose.yml
 docker compose -f /tmp/docker-compose.yml up --build
 ```
+Don't touch docker-compose.yml. It is a temporary file.

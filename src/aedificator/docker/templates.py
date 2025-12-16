@@ -130,15 +130,15 @@ services:
     image: postgres:{postgres_version}
     container_name: postgres
     environment:
-      POSTGRES_USER: zotonic
-      POSTGRES_PASSWORD: zotonic
-      POSTGRES_DB: zotonic
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: abensoft
+      POSTGRES_DB: superleme
     volumes:
       - postgres_zotonic_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U zotonic"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -153,9 +153,9 @@ services:
     environment:
       ZOTONIC_DBHOST: postgres
       ZOTONIC_DBPORT: 5432
-      ZOTONIC_DBUSER: zotonic
-      ZOTONIC_DBPASSWORD: zotonic
-      ZOTONIC_DBDATABASE: zotonic
+      ZOTONIC_DBUSER: postgres
+      ZOTONIC_DBPASSWORD: abensoft
+      ZOTONIC_DBDATABASE: superleme
       SHELL: /bin/bash
     ports:
       - "8000:8000"
