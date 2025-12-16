@@ -73,17 +73,14 @@ class Executor:
                 if command.startswith('make') or command.startswith('bash') or command.startswith('sh') or command.startswith('mise'):
                     # For build commands, bypass entrypoint and run directly
                     # Add NO_PROXY and HEX_MIRROR for network issues
-                    # Add SHELL=/bin/bash for erlexec compatibility
-                    docker_cmd = f'NO_PROXY=* stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --entrypoint="" -w /opt/zotonic -e NO_PROXY=* -e http_proxy= -e https_proxy= -e SHELL=/bin/bash zotonic {command}'
+                    docker_cmd = f'NO_PROXY=* stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --entrypoint="" -w /opt/zotonic -e NO_PROXY=* -e http_proxy= -e https_proxy= zotonic {command}'
                 else:
                     # For zotonic commands, use normal entrypoint
-                    # Add SHELL=/bin/bash for erlexec compatibility
-                    docker_cmd = f'stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --service-ports -w /opt/zotonic -e SHELL=/bin/bash zotonic {command}'
+                    docker_cmd = f'stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --service-ports -w /opt/zotonic zotonic {command}'
             elif 'phoenix' in cwd:
                 # For Phoenix, use docker compose run with proper working directory
                 # Phoenix apps typically expect to be in /app directory inside container
-                # Add SHELL=/bin/bash for compatibility
-                docker_cmd = f'stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --service-ports -w /app -e SHELL=/bin/bash app {command}'
+                docker_cmd = f'stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --service-ports -w /app app {command}'
             else:
                 # For other services, use exec
                 service = 'app'  # Generic service name

@@ -126,9 +126,9 @@ services:
 
         if stack_type in ["superleme", "full"]:
             compose_content += f"""
-  postgres-zotonic:
+  postgres:
     image: postgres:{postgres_version}
-    container_name: zotonic-postgres
+    container_name: postgres
     environment:
       POSTGRES_USER: zotonic
       POSTGRES_PASSWORD: zotonic
@@ -148,14 +148,15 @@ services:
       context: .
       dockerfile: Dockerfile.superleme
     depends_on:
-      postgres-zotonic:
+      postgres:
         condition: service_healthy
     environment:
-      ZOTONIC_DBHOST: postgres-zotonic
+      ZOTONIC_DBHOST: postgres
       ZOTONIC_DBPORT: 5432
       ZOTONIC_DBUSER: zotonic
       ZOTONIC_DBPASSWORD: zotonic
       ZOTONIC_DBDATABASE: zotonic
+      SHELL: /bin/bash
     ports:
       - "8000:8000"
       - "8443:8443"
@@ -176,9 +177,10 @@ services:
       context: .
       dockerfile: Dockerfile.phoenix
     environment:
-      DATABASE_URL: ecto://phoenix:phoenix@postgres-phoenix/phoenix_dev
+      DATABASE_URL: ecto://phoenix:phoenix@postgres/phoenix_dev
       SECRET_KEY_BASE: ${{SECRET_KEY_BASE:-changeme}}
       PHX_HOST: localhost
+      SHELL: /bin/bash
     ports:
       - "4000:4000"
     volumes:
@@ -191,9 +193,9 @@ services:
 """
             if stack_type == "phoenix":
                 compose_content += f"""
-  postgres-phoenix:
+  postgres:
     image: postgres:{postgres_version}
-    container_name: phoenix-postgres
+    container_name: postgres
     environment:
       POSTGRES_USER: phoenix
       POSTGRES_PASSWORD: phoenix
