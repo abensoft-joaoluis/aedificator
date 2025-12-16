@@ -130,7 +130,7 @@ services:
     image: postgres:{postgres_version}
     container_name: postgres
     environment:
-      POSTGRES_USER: superleme
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: abensoft
       POSTGRES_DB: superleme
     volumes:
@@ -138,7 +138,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U superleme"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -153,7 +153,7 @@ services:
     environment:
       ZOTONIC_DBHOST: postgres
       ZOTONIC_DBPORT: 5432
-      ZOTONIC_DBUSER: superleme
+      ZOTONIC_DBUSER: postgres
       ZOTONIC_DBPASSWORD: abensoft
       ZOTONIC_DBDATABASE: superleme
       SHELL: /bin/bash
@@ -177,7 +177,7 @@ services:
       context: .
       dockerfile: Dockerfile.phoenix
     environment:
-      DATABASE_URL: ecto://superleme:abensoft@postgres/superleme
+      DATABASE_URL: ecto://postgres:abensoft@postgres/superleme
       SECRET_KEY_BASE: ${{SECRET_KEY_BASE:-changeme}}
       PHX_HOST: localhost
       SHELL: /bin/bash
@@ -197,7 +197,7 @@ services:
     image: postgres:{postgres_version}
     container_name: postgres
     environment:
-      POSTGRES_USER: superleme
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: abensoft
       POSTGRES_DB: superleme
     volumes:
@@ -205,7 +205,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U superleme"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
