@@ -266,14 +266,15 @@ class Main():
             self.console.print(f"[error]Erro ao conectar ao servidor: {str(e)}[/error]")
             return
         
-        # Use default destination directory
-        dest_dir = os.path.expanduser("~/bkps")
+        # Use predictable location in src/data
+        src_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        data_dir = os.path.join(src_dir, "data")
+        os.makedirs(data_dir, exist_ok=True)
         
-        # Create destination directory if it doesn't exist
-        os.makedirs(dest_dir, exist_ok=True)
+        backup_file = os.path.join(data_dir, "backup.backup")
         
         remote_file = f"{remote_dir}/{selected_file}"
-        scp_command = f'scp -i "{pem_file}" {remote_host}:{remote_file} "{dest_dir}/"'
+        scp_command = f'scp -i "{pem_file}" {remote_host}:{remote_file} "{backup_file}"'
         
         self.console.print(f"\n[info]Executando: {scp_command}[/info]")
         
@@ -286,7 +287,6 @@ class Main():
                 text=True
             )
             
-            backup_file = os.path.join(dest_dir, selected_file)
             if os.path.exists(backup_file):
                 self.console.print(f"[success]Backup baixado com sucesso: {backup_file}[/success]")
             else:

@@ -4,6 +4,7 @@ import atexit
 import signal
 import sys
 import json
+import subprocess
 from typing import Optional
 from . import console
 from .executor import Executor
@@ -86,6 +87,7 @@ class Menu:
                 "Iniciar (start)",
                 "Parar (stop)",
                 "Status",
+                "Restaurar Backup do Banco",
                 "Voltar"
             ]
         ).ask()
@@ -103,6 +105,9 @@ class Menu:
                 
                 console.print("[info]Reconstruindo imagem Docker zotonic:latest...[/info]")
                 Executor.run_command("docker compose build --no-cache zotonic", zotonic_root, background=False, use_docker=False)
+                
+                console.print("[info]Restaurando backup do banco de dados...[/info]")
+                self._restore_database(zotonic_root, use_docker)
             else:
                 console.print("[warning]Docker não está ativo para este projeto.[/warning]")
 
@@ -157,6 +162,9 @@ class Menu:
             else:
                 cmd = "bin/zotonic status"
             Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
+        
+        elif choice == "Restaurar Backup do Banco":
+            self._restore_database(zotonic_root, use_docker)
 
     def show_sl_phoenix_menu(self):
         """Display SL Phoenix project menu."""
@@ -330,6 +338,7 @@ class Menu:
                 "Versões de Linguagens - SL Phoenix",
                 "Configurações Docker - Superleme",
                 "Configurações Docker - SL Phoenix",
+                "Baixar Novo Backup do Banco",
                 "Limpar Processos Docker em Background",
                 "Voltar"
             ]
@@ -343,6 +352,8 @@ class Menu:
             self._configure_superleme_docker()
         elif choice == "Configurações Docker - SL Phoenix":
             self._configure_phoenix_docker()
+        elif choice == "Baixar Novo Backup do Banco":
+            self._download_new_backup()
         elif choice == "Limpar Processos Docker em Background":
             self._cleanup_docker_processes()
 
@@ -832,3 +843,155 @@ class Menu:
 
         if confirm:
             DockerManager.prune_images(all_images)
+    
+    def _restore_database(self, zotonic_root, use_docker):
+        """Restore database from backup file."""
+        import glob
+        
+        # Get backup file location
+        src_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        backup_file = os.path.join(src_dir, "data", "backup.backup")
+        
+        if not os.path.exists(backup_file):
+            console.print(f"[error]Arquivo de backup não encontrado: {backup_file}[/error]")
+            console.print("[info]Execute 'Baixar Novo Backup do Banco' nas Configurações primeiro.[/info]")
+            return
+        
+        console.print(f"[info]Usando backup: {backup_file}[/info]")
+        
+        if use_docker:
+            # Copy backup into container and restore
+            console.print("[info]Iniciando container PostgreSQL...[/info]")
+            Executor.run_command("docker compose up -d postgres", zotonic_root, background=False, use_docker=False)
+            
+            # Wait for postgres to be ready
+            console.print("[info]Aguardando PostgreSQL ficar pronto...[/info]")
+            Executor.run_command("sleep 5", zotonic_root, background=False, use_docker=False)
+            
+            # Drop and recreate database
+            console.print("[info]Recriando banco de dados...[/info]")
+            Executor.run_command(
+                'docker compose exec -T postgres psql -U postgres -c "DROP DATABASE IF EXISTS superleme;"',
+                zotonic_root, background=False, use_docker=False
+            )
+            Executor.run_command(
+                'docker compose exec -T postgres psql -U postgres -c "CREATE DATABASE superleme OWNER superleme;"',
+                zotonic_root, background=False, use_docker=False
+            )
+            
+            # Restore backup
+            console.print("[info]Restaurando backup...[/info]")
+            restore_cmd = f'cat "{backup_file}" | docker compose exec -T postgres pg_restore --host localhost --port 5432 --username postgres --verbose -d superleme'
+            Executor.run_command(restore_cmd, zotonic_root, background=False, use_docker=False)
+        else:
+            # Local restoration
+            console.print("[info]Restaurando backup localmente...[/info]")
+            restore_cmd = f'pg_restore --host "localhost" --port 5432 --username "postgres" --verbose -d superleme "{backup_file}"'
+            Executor.run_command(restore_cmd, zotonic_root, background=False, use_docker=False)
+        
+        console.print("[success]Restauração concluída![/success]")
+    
+    def _download_new_backup(self):
+        """Download a new backup file from remote server."""
+        from pathing.main import Pathing
+        import glob
+        
+        console.print("\n[info]Download de Novo Backup[/info]")
+        
+        # Find .pem file in ~/.ssh
+        ssh_dir = os.path.expanduser("~/.ssh")
+        pem_files = glob.glob(os.path.join(ssh_dir, "*.pem"))
+        
+        if not pem_files:
+            console.print("[warning]Nenhum arquivo .pem encontrado em ~/.ssh[/warning]")
+            console.print("[info]Selecione o arquivo .pem usando o navegador de arquivos[/info]")
+            pem_file = Pathing.select_file(ssh_dir)
+            
+            if not pem_file or not os.path.exists(pem_file):
+                console.print("[error]Arquivo .pem não encontrado. Download cancelado.[/error]")
+                return
+        elif len(pem_files) == 1:
+            pem_file = pem_files[0]
+            console.print(f"[success]Arquivo .pem encontrado: {pem_file}[/success]")
+        else:
+            # Multiple .pem files found, let user choose with file browser
+            console.print(f"[info]Encontrados {len(pem_files)} arquivos .pem em ~/.ssh[/info]")
+            console.print("[info]Selecione o arquivo .pem desejado usando o navegador de arquivos[/info]")
+            pem_file = Pathing.select_file(ssh_dir)
+            
+            if not pem_file or not os.path.exists(pem_file):
+                console.print("[error]Arquivo .pem não selecionado. Download cancelado.[/error]")
+                return
+        
+        # List files in remote directory
+        remote_host = "ubuntu@teste1x.superleme.com.br"
+        remote_dir = "/home/ubuntu/bkps"
+        
+        console.print(f"\n[info]Listando arquivos em {remote_host}:{remote_dir}[/info]")
+        
+        try:
+            ssh_command = f'ssh -i "{pem_file}" {remote_host} "ls -1 {remote_dir}/*.backup"'
+            result = subprocess.run(
+                ssh_command,
+                shell=True,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            
+            # Parse filenames from output
+            files = [os.path.basename(f.strip()) for f in result.stdout.strip().split('\n') if f.strip()]
+            
+            if not files:
+                console.print("[error]Nenhum arquivo .backup encontrado no servidor[/error]")
+                return
+            
+            # Let user select file
+            selected_file = questionary.select(
+                "Selecione o arquivo de backup para baixar:",
+                choices=files
+            ).ask()
+            
+            if not selected_file:
+                console.print("[info]Nenhum arquivo selecionado. Download cancelado.[/info]")
+                return
+            
+        except subprocess.CalledProcessError as e:
+            console.print(f"[error]Erro ao listar arquivos no servidor:[/error]")
+            console.print(f"[error]{e.stderr}[/error]")
+            return
+        except Exception as e:
+            console.print(f"[error]Erro ao conectar ao servidor: {str(e)}[/error]")
+            return
+        
+        # Use predictable location in src/data
+        src_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        data_dir = os.path.join(src_dir, "data")
+        os.makedirs(data_dir, exist_ok=True)
+        
+        backup_file = os.path.join(data_dir, "backup.backup")
+        
+        remote_file = f"{remote_dir}/{selected_file}"
+        scp_command = f'scp -i "{pem_file}" {remote_host}:{remote_file} "{backup_file}"'
+        
+        console.print(f"\n[info]Executando: {scp_command}[/info]")
+        
+        try:
+            result = subprocess.run(
+                scp_command,
+                shell=True,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            
+            if os.path.exists(backup_file):
+                console.print(f"[success]Backup baixado com sucesso: {backup_file}[/success]")
+            else:
+                console.print("[warning]Comando executado, mas arquivo não encontrado no destino[/warning]")
+                
+        except subprocess.CalledProcessError as e:
+            console.print(f"[error]Erro ao baixar backup:[/error]")
+            console.print(f"[error]{e.stderr}[/error]")
+        except Exception as e:
+            console.print(f"[error]Erro ao executar comando SCP: {str(e)}[/error]")
