@@ -720,7 +720,15 @@ class Menu:
                 console.print("[warning]Dockerfile não encontrado. Gerando...[/warning]")
                 DockerManager.generate_superleme_dockerfile(dockerfile_path)
 
-            DockerManager.build_image(dockerfile_path, "zotonic", image_tag, zotonic_root)
+            # Load build args from DB config
+            super_config = DockerManager.load_config_from_db("superleme")
+            langs = json.loads(super_config.get('languages', '{}'))
+            build_args = {
+                'POSTGRES_VERSION': super_config.get('postgres_version'),
+                'ERLANG_VERSION': langs.get('erlang')
+            }
+
+            DockerManager.build_image(dockerfile_path, "zotonic", image_tag, zotonic_root, build_args)
 
         elif choice == "SL Phoenix":
             dockerfile_path = os.path.join(self.sl_phoenix_path, "Dockerfile.phoenix")
@@ -730,7 +738,15 @@ class Menu:
                 console.print("[warning]Dockerfile não encontrado. Gerando...[/warning]")
                 DockerManager.generate_phoenix_dockerfile(dockerfile_path)
 
-            DockerManager.build_image(dockerfile_path, "sl_phoenix", image_tag, self.sl_phoenix_path)
+            # Load build args for Phoenix
+            phoenix_config = DockerManager.load_config_from_db("sl_phoenix")
+            phoenix_langs = json.loads(phoenix_config.get('languages', '{}'))
+            build_args = {
+                'ELIXIR_VERSION': phoenix_langs.get('elixir'),
+                'ERLANG_VERSION': phoenix_langs.get('erlang'),
+                'NODE_VERSION': phoenix_langs.get('node')
+            }
+            DockerManager.build_image(dockerfile_path, "sl_phoenix", image_tag, self.sl_phoenix_path, build_args)
 
         elif choice == "Ambos (Superleme + Phoenix)":
             # Build Superleme
@@ -741,7 +757,11 @@ class Menu:
                 console.print("[warning]Dockerfile do Superleme não encontrado. Gerando...[/warning]")
                 DockerManager.generate_superleme_dockerfile(superleme_dockerfile)
 
-            DockerManager.build_image(superleme_dockerfile, "zotonic", image_tag, zotonic_root)
+            # Build Superleme with args
+            super_config = DockerManager.load_config_from_db("superleme")
+            super_langs = json.loads(super_config.get('languages', '{}'))
+            build_args = {'POSTGRES_VERSION': super_config.get('postgres_version'), 'ERLANG_VERSION': super_langs.get('erlang')}
+            DockerManager.build_image(superleme_dockerfile, "zotonic", image_tag, zotonic_root, build_args)
 
             # Build Phoenix
             phoenix_dockerfile = os.path.join(self.sl_phoenix_path, "Dockerfile.phoenix")
@@ -750,7 +770,10 @@ class Menu:
                 console.print("[warning]Dockerfile do Phoenix não encontrado. Gerando...[/warning]")
                 DockerManager.generate_phoenix_dockerfile(phoenix_dockerfile)
 
-            DockerManager.build_image(phoenix_dockerfile, "sl_phoenix", image_tag, self.sl_phoenix_path)
+            phoenix_config = DockerManager.load_config_from_db("sl_phoenix")
+            phoenix_langs = json.loads(phoenix_config.get('languages', '{}'))
+            build_args = {'ELIXIR_VERSION': phoenix_langs.get('elixir'), 'ERLANG_VERSION': phoenix_langs.get('erlang'), 'NODE_VERSION': phoenix_langs.get('node')}
+            DockerManager.build_image(phoenix_dockerfile, "sl_phoenix", image_tag, self.sl_phoenix_path, build_args)
 
     def _push_images_submenu(self):
         """Submenu for pushing Docker images to registry."""
@@ -868,8 +891,12 @@ class Menu:
             console.print("[info]Aguardando PostgreSQL ficar pronto...[/info]")
             Executor.run_command("sleep 5", zotonic_root, background=False, use_docker=False)
             
-            # Create roles first
             console.print("[info]Criando roles...[/info]")
+            Executor.run_command(
+                'docker compose exec -T postgres psql -U postgres -c "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = \'postgres\') THEN CREATE ROLE postgres WITH LOGIN SUPERUSER; END IF; END$$;"',
+                zotonic_root, background=False, use_docker=False
+            )
+
             Executor.run_command(
                 'docker compose exec -T postgres psql -U postgres -c "DROP ROLE IF EXISTS superleme_ro; CREATE ROLE superleme_ro;"',
                 zotonic_root, background=False, use_docker=False
@@ -894,9 +921,8 @@ class Menu:
             restore_cmd = f'cat "{backup_file}" | docker compose exec -T postgres pg_restore -U postgres --verbose -d superleme'
             Executor.run_command(restore_cmd, zotonic_root, background=False, use_docker=False)
         else:
-            # Local restoration
             console.print("[info]Restaurando backup localmente...[/info]")
-            restore_cmd = f'pg_restore --host "localhost" --port 5432 --username "postgres" --verbose -d superleme "{backup_file}"'
+            restore_cmd = f'sudo -u postgres pg_restore --verbose -d superleme "{backup_file}"'
             Executor.run_command(restore_cmd, zotonic_root, background=False, use_docker=False)
         
         console.print("[success]Restauração concluída![/success]")

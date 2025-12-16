@@ -2,3 +2,4 @@ rich
 questionary
 ranger-fm
 peewee
+jinja2

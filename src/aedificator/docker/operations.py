@@ -12,7 +12,11 @@ class DockerOperations:
 
     @staticmethod
     def build_image(
-        dockerfile_path: str, image_name: str, image_tag: str, build_context: str
+        dockerfile_path: str,
+        image_name: str,
+        image_tag: str,
+        build_context: str,
+        build_args: dict | None = None,
     ):
         """
         Build Docker image using Dockerfile.
@@ -27,7 +31,19 @@ class DockerOperations:
 
         console.print(f"[info]Buildando imagem Docker: {image_name}:{image_tag}[/info]")
 
-        command = f"docker build -f {dockerfile_path} -t {image_name}:{image_tag} {build_context}"
+        # Allow passing build args via environment variables for reproducible builds
+        # Append build-arg flags when provided
+        arg_flags = ""
+        if build_args:
+            parts = []
+            for k, v in build_args.items():
+                if v is None:
+                    continue
+                parts.append(f"--build-arg {k}={v}")
+            if parts:
+                arg_flags = " " + " ".join(parts)
+
+        command = f"docker build -f {dockerfile_path} -t {image_name}:{image_tag}{arg_flags} {build_context}"
 
         # Use executor to run with real-time output
         Executor.run_command(command, build_context, background=False, use_docker=False)

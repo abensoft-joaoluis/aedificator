@@ -26,35 +26,47 @@ class Executor:
         """Update docker-compose.yml with versions from database config."""
         if not docker_config:
             return
-
-        compose_file = os.path.join(cwd, 'docker-compose.yml')
-        if not os.path.exists(compose_file):
-            compose_file = os.path.join(cwd, 'docker-compose.yaml')
-            if not os.path.exists(compose_file):
+        try:
+            postgres_version = docker_config.get('postgres_version')
+            if not postgres_version:
                 return
 
-        try:
-            # Read the docker-compose file
-            with open(compose_file, 'r') as f:
-                content = f.read()
+            env_file = os.path.join(cwd, '.env')
+            # Preserve other env entries if present; update POSTGRES_VERSION and language vars
+            env_lines = {}
+            if os.path.exists(env_file):
+                try:
+                    with open(env_file, 'r') as f:
+                        for line in f:
+                            if '=' in line:
+                                k, v = line.rstrip('\n').split('=', 1)
+                                env_lines[k] = v
+                except Exception:
+                    env_lines = {}
 
-            # Update PostgreSQL version if configured
-            postgres_version = docker_config.get('postgres_version')
-            if postgres_version:
-                # Match patterns like "postgres:16.2-alpine" or "postgres:17-alpine"
-                content = re.sub(
-                    r'postgres:[0-9]+(\.[0-9]+)?(-[a-zA-Z0-9]+)?',
-                    f'postgres:{postgres_version}',
-                    content
-                )
-                console.print(f"[success]Versão do PostgreSQL atualizada para: {postgres_version}[/success]")
+            env_lines['POSTGRES_VERSION'] = postgres_version
 
-            # Write back the updated content
-            with open(compose_file, 'w') as f:
-                f.write(content)
+            # Also set language versions if available
+            try:
+                import json as _json
+                langs = _json.loads(docker_config.get('languages', '{}'))
+                if langs.get('erlang'):
+                    env_lines['ERLANG_VERSION'] = langs.get('erlang')
+                if langs.get('elixir'):
+                    env_lines['ELIXIR_VERSION'] = langs.get('elixir')
+                if langs.get('node'):
+                    env_lines['NODE_VERSION'] = langs.get('node')
+            except Exception:
+                pass
+
+            with open(env_file, 'w') as f:
+                for k, v in env_lines.items():
+                    f.write(f"{k}={v}\n")
+
+            console.print(f"[success].env criado/atualizado com POSTGRES_VERSION={postgres_version}[/success]")
 
         except Exception as e:
-            console.print(f"[warning]Não foi possível atualizar docker-compose.yml: {e}[/warning]")
+            console.print(f"[warning]Não foi possível criar/atualizar .env: {e}[/warning]")
 
     @staticmethod
     def _wrap_with_docker(command: str, cwd: str, use_docker: bool = True, docker_config: Optional[Dict] = None) -> str:
@@ -74,7 +86,7 @@ class Executor:
                     # For build commands, bypass entrypoint and run directly
                     # Add NO_PROXY and HEX_MIRROR for network issues
                     docker_cmd = f'NO_PROXY=* stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --entrypoint="" -w /opt/zotonic -e NO_PROXY=* -e http_proxy= -e https_proxy= zotonic {command}'
-                else:
+                else:   
                     # For zotonic commands, use normal entrypoint
                     docker_cmd = f'stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --service-ports -w /opt/zotonic zotonic {command}'
             elif 'phoenix' in cwd:
@@ -176,8 +188,7 @@ class Executor:
                         stderr=subprocess.STDOUT,
                         executable='/bin/bash',
                         bufsize=1,  # line buffered
-                        encoding='utf-8',
-                        errors='replace',  # Replace invalid UTF-8 bytes with '?' instead of crashing
+                        universal_newlines=True,
                         env=env
                     )
 
@@ -185,29 +196,19 @@ class Executor:
                     console.print("[info]Aguardando saída do comando...[/info]")
 
                     line_count = 0
-                    try:
-                        for line in process.stdout:
-                            line_count += 1
-                            try:
-                                # Remove carriage returns and ensure proper line endings
-                                # Strip \r to prevent diagonal output
-                                line = line.replace('\r\n', '\n').replace('\r', '\n')
-                                # Ensure line ends with newline
-                                if not line.endswith('\n'):
-                                    line = line + '\n'
-                                # Print to console
-                                print(line, end='', flush=True)
-                                # Write to log file
-                                log_file.write(line)
-                                log_file.flush()
-                            except UnicodeDecodeError as ue:
-                                # This should not happen with errors='replace', but just in case
-                                error_msg = f"[Erro de codificação - caractere inválido ignorado]\n"
-                                print(error_msg, flush=True)
-                                log_file.write(error_msg)
-                                log_file.flush()
-                    except Exception as read_error:
-                        console.print(f"[warning]Erro ao ler saída: {read_error}[/warning]")
+                    for line in process.stdout:
+                        line_count += 1
+                        # Remove carriage returns and ensure proper line endings
+                        # Strip \r to prevent diagonal output
+                        line = line.replace('\r\n', '\n').replace('\r', '\n')
+                        # Ensure line ends with newline
+                        if not line.endswith('\n'):
+                            line = line + '\n'
+                        # Print to console
+                        print(line, end='', flush=True)
+                        # Write to log file
+                        log_file.write(line)
+                        log_file.flush()
 
                     # Wait for process to complete
                     process.wait()
@@ -222,14 +223,8 @@ class Executor:
                     console.print(f"\n[error]Comando falhou com código {returncode}[/error]")
                 console.print(f"Log: {log_filename}")
                 return None
-        except UnicodeDecodeError as ude:
-            console.print(f"[error]Erro de codificação UTF-8 na saída do comando[/error]")
-            console.print(f"[warning]O comando produziu caracteres não-UTF-8 que foram substituídos[/warning]")
-            console.print(f"Log: {log_filename}")
-            return None
         except Exception as e:
             console.print(f"[error]Erro ao executar comando: {e}[/error]")
-            console.print(f"Log: {log_filename}")
             return None
 
     @staticmethod

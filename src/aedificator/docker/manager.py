@@ -147,14 +147,48 @@ class DockerManager:
         )
         console.print(f"Versão PostgreSQL: {postgres_version}")
 
-    # Delegate operations to DockerOperations class
+        env_dir = os.path.dirname(output_path)
+        env_file = os.path.join(env_dir, '.env')
+        env_lines = {}
+        if os.path.exists(env_file):
+            try:
+                with open(env_file, 'r') as f:
+                    for line in f:
+                        if '=' in line:
+                            k, v = line.rstrip('\n').split('=', 1)
+                            env_lines[k] = v
+            except Exception:
+                env_lines = {}
+
+        env_lines['POSTGRES_VERSION'] = postgres_version
+        try:
+            langs = json.loads(superleme_config.get('languages', '{}'))
+            if langs.get('erlang'):
+                env_lines['ERLANG_VERSION'] = langs.get('erlang')
+            if langs.get('elixir'):
+                env_lines['ELIXIR_VERSION'] = langs.get('elixir')
+            if langs.get('node'):
+                env_lines['NODE_VERSION'] = langs.get('node')
+        except Exception:
+            pass
+
+        with open(env_file, 'w') as f:
+            for k, v in env_lines.items():
+                f.write(f"{k}={v}\n")
+
+        console.print(f"[success].env criado em: {env_file}[/success]")
+
     @staticmethod
     def build_image(
-        dockerfile_path: str, image_name: str, image_tag: str, build_context: str
+        dockerfile_path: str,
+        image_name: str,
+        image_tag: str,
+        build_context: str,
+        build_args: dict | None = None,
     ):
         """Build Docker image. Delegates to DockerOperations."""
         DockerOperations.build_image(
-            dockerfile_path, image_name, image_tag, build_context
+            dockerfile_path, image_name, image_tag, build_context, build_args
         )
 
     @staticmethod
