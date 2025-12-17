@@ -121,6 +121,49 @@ class DockerManager:
         )
 
     @staticmethod
+    def generate_superleme_phoenix_dockerfile(output_path: str):
+        """
+        Generate combined Dockerfile for Superleme + Phoenix based on database configurations.
+
+        Args:
+            output_path: Path where to write the Dockerfile
+        """
+        # Load configurations from both projects
+        superleme_config = DockerManager.load_config_from_db("superleme")
+        phoenix_config = DockerManager.load_config_from_db("sl_phoenix")
+
+        if not superleme_config or not phoenix_config:
+            console.print(
+                "[error]Não foi possível carregar configurações de ambos os projetos[/error]"
+            )
+            return
+
+        # Get versions from both configs
+        superleme_langs = json.loads(superleme_config.get("languages", "{}"))
+        phoenix_langs = json.loads(phoenix_config.get("languages", "{}"))
+
+        erlang_version = superleme_langs.get("erlang", "28")
+        elixir_version = phoenix_langs.get("elixir", "1.19.4")
+        node_version = phoenix_langs.get("node", "25.2.1")
+
+        # Generate content using template
+        dockerfile_content = DockerTemplates.superleme_phoenix_dockerfile(
+            erlang_version, elixir_version, node_version
+        )
+
+        # Write Dockerfile
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        with open(output_path, "w") as f:
+            f.write(dockerfile_content)
+
+        console.print(
+            f"[success]Dockerfile Superleme+Phoenix gerado em: {output_path}[/success]"
+        )
+        console.print(
+            f"Versões configuradas: Erlang {erlang_version}, Elixir {elixir_version}, Node.js {node_version}"
+        )
+
+    @staticmethod
     def generate_docker_compose(output_path: str, stack_type: str = "full"):
         """
         Generate docker-compose.yml for different stack configurations.
@@ -141,6 +184,16 @@ class DockerManager:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, "w") as f:
             f.write(compose_content)
+
+        init_script_content = DockerTemplates.init_postgres_script()
+        init_script_path = os.path.join(os.path.dirname(output_path), 'init-postgres.sh')
+        with open(init_script_path, "w") as f:
+            f.write(init_script_content)
+        
+        os.chmod(init_script_path, 0o755)
+        console.print(
+            f"[success]Script init-postgres.sh gerado em: {init_script_path}[/success]"
+        )
 
         console.print(
             f"[success]docker-compose.yml ({stack_type}) gerado em: {output_path}[/success]"

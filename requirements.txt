@@ -3,3 +3,4 @@ questionary
 ranger-fm
 peewee
 jinja2
+unidecode

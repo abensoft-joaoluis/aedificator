@@ -1,0 +1,39 @@
+#!/bin/bash
+# Script de inicialização do PostgreSQL
+# Gerado automaticamente pelo Aedificator
+# Cria usuários e databases necessários para Superleme e Phoenix
+
+set -e
+
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+    -- Criar usuário zotonic se não existir
+    DO \$\$
+    BEGIN
+        IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'zotonic') THEN
+            CREATE USER zotonic WITH PASSWORD 'zotonic';
+        END IF;
+    END
+    \$\$;
+
+    -- Criar database zotonic se não existir
+    SELECT 'CREATE DATABASE zotonic OWNER zotonic'
+    WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'zotonic')\gexec
+
+    -- Garantir permissões para o usuário zotonic
+    GRANT ALL PRIVILEGES ON DATABASE zotonic TO zotonic;
+
+    -- Criar database superleme se não existir (caso o POSTGRES_DB não seja superleme)
+    SELECT 'CREATE DATABASE superleme OWNER postgres'
+    WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'superleme')\gexec
+
+    GRANT ALL PRIVILEGES ON DATABASE superleme TO postgres;
+    GRANT ALL PRIVILEGES ON DATABASE superleme TO zotonic;
+
+    -- Para Phoenix/Ecto, permitir que o usuário postgres crie extensions
+    ALTER USER postgres WITH SUPERUSER;
+    ALTER USER zotonic WITH CREATEDB;
+EOSQL
+
+echo "PostgreSQL: Usuários e databases criados com sucesso!"
+echo "  - Usuário postgres: database superleme (owner)"
+echo "  - Usuário zotonic: database zotonic (owner)"

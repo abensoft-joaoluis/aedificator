@@ -20,7 +20,6 @@ class Main():
 
         selected = Pathing.find_folders()
 
-        # Check if Docker configurations exist
         has_docker_config = False
         try:
             DockerConfiguration.get(DockerConfiguration.project_name == 'superleme')
@@ -47,11 +46,18 @@ class Main():
             else:
                 self.console.print("[warning]Nenhuma pasta detectada automaticamente[/warning]")
 
-        # Configure Docker for projects on first install
         docker_configs = {}
         if is_first_install:
             self._download_database_backup()
-            
+
+            try:
+                with open("/etc/hosts", "r") as f:
+                    if "postgres" not in f.read():
+                        self.console.print("\n[info]Adicionando '127.0.0.1 postgres' ao /etc/hosts (requer sudo)...[/info]")
+                        os.system('printf "\\n127.0.0.1 postgres\\n" | sudo tee -a /etc/hosts > /dev/null')
+            except Exception as e:
+                self.console.print(f"[warning]Não foi possível verificar /etc/hosts: {e}[/warning]")
+
             self.console.print("\n[info]Configuração de ambiente Docker[/info]")
             use_docker = questionary.confirm(
                 "Deseja usar Docker para executar os projetos?",

@@ -5,7 +5,7 @@ services:
 
 {% if include_superleme %}
   postgres:
-    image: postgres:${POSTGRES_VERSION}
+    image: postgres:{{ postgres_version }}
     container_name: postgres
     environment:
       POSTGRES_USER: postgres
@@ -13,6 +13,7 @@ services:
       POSTGRES_DB: superleme
     volumes:
       - postgres_zotonic_data:/var/lib/postgresql/data
+      - ./init-postgres.sh:/docker-entrypoint-initdb.d/init-postgres.sh:ro
     ports:
       - "5432:5432"
     healthcheck:
@@ -25,9 +26,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.superleme
-      args:
-        POSTGRES_VERSION: ${POSTGRES_VERSION}
-        ERLANG_VERSION: ${ERLANG_VERSION:-28}
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,10 +53,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.phoenix
-      args:
-        ELIXIR_VERSION: ${ELIXIR_VERSION:-1.19.4}
-        ERLANG_VERSION: ${ERLANG_VERSION:-28}
-        NODE_VERSION: ${NODE_VERSION:-25.2.1}
     environment:
       DATABASE_URL: ecto://postgres:abensoft@postgres/superleme
       SECRET_KEY_BASE: {% raw %}${{SECRET_KEY_BASE:-changeme}}{% endraw %}

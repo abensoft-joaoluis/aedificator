@@ -507,7 +507,7 @@ class Menu:
 
         if choice == "Listar containers em execução":
             console.print("\n[info]Containers Docker em execução:[/info]")
-            Executor.run_command("docker ps -a", os.getcwd(), background=False, use_docker=False)
+            Executor.run_command("docker ps -a", os.path.expanduser("~"), background=False, use_docker=False)
 
         elif choice == "Parar todos os containers Docker Compose":
             console.print("\n[warning]Parando todos os containers Docker Compose...[/warning]")
@@ -563,7 +563,7 @@ class Menu:
 
                 # Prune unused networks
                 console.print("[info]Removendo networks não utilizadas...[/info]")
-                Executor.run_command("docker network prune -f", os.getcwd(), background=False, use_docker=False)
+                Executor.run_command("docker network prune -f", os.path.expanduser("~"), background=False, use_docker=False)
 
                 console.print("[success]Limpeza completa concluída![/success]")
             else:
@@ -606,8 +606,6 @@ class Menu:
                         process.kill()
             except Exception:
                 pass  # Ignore errors during cleanup
-
-        self.processes.clear()
 
     def _signal_handler(self, signum, frame):
         """Handle interrupt signals."""
@@ -890,35 +888,56 @@ class Menu:
             # Wait for postgres to be ready
             console.print("[info]Aguardando PostgreSQL ficar pronto...[/info]")
             Executor.run_command("sleep 5", zotonic_root, background=False, use_docker=False)
+
+            # [MODIFIED] Detect DB User from .env to avoid "role does not exist" errors
+            db_user = "postgres"
+            env_path = os.path.join(zotonic_root, ".env")
+            if os.path.exists(env_path):
+                try:
+                    with open(env_path, 'r') as f:
+                        for line in f:
+                            if line.strip().startswith("POSTGRES_USER="):
+                                db_user = line.split("=")[1].strip()
+                                break
+                except Exception:
+                    pass
             
+            console.print(f"[info]Conectando como superusuário: {db_user}[/info]")
+
+            # [MODIFIED] Use detected db_user for the initial connection
             console.print("[info]Criando roles...[/info]")
             Executor.run_command(
-                'docker compose exec -T postgres psql -U postgres -c "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = \'postgres\') THEN CREATE ROLE postgres WITH LOGIN SUPERUSER; END IF; END$$;"',
+                f'docker compose exec -T postgres psql -U {db_user} -c "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = \'postgres\') THEN CREATE ROLE postgres WITH LOGIN SUPERUSER; END IF; END$$;"',
                 zotonic_root, background=False, use_docker=False
             )
 
+            # Create the necessary roles
             Executor.run_command(
-                'docker compose exec -T postgres psql -U postgres -c "DROP ROLE IF EXISTS superleme_ro; CREATE ROLE superleme_ro;"',
+                f'docker compose exec -T postgres psql -U {db_user} -c "DROP ROLE IF EXISTS superleme_ro; CREATE ROLE superleme_ro;"',
                 zotonic_root, background=False, use_docker=False
             )
-            Executor.run_command(
-                'docker compose exec -T postgres psql -U postgres -c "DROP ROLE IF EXISTS superleme; CREATE ROLE superleme WITH LOGIN PASSWORD \'superleme\';"',
-                zotonic_root, background=False, use_docker=False
-            )
+            # Cannot drop the user we might be logged in as, so wrap in try/catch or ignore failure if db_user == superleme
+            if db_user != "superleme":
+                Executor.run_command(
+                    f'docker compose exec -T postgres psql -U {db_user} -c "DROP ROLE IF EXISTS superleme; CREATE ROLE superleme WITH LOGIN PASSWORD \'superleme\';"',
+                    zotonic_root, background=False, use_docker=False
+                )
             
             # Drop and recreate database
             console.print("[info]Recriando banco de dados...[/info]")
             Executor.run_command(
-                'docker compose exec -T postgres psql -U postgres -c "DROP DATABASE IF EXISTS superleme;"',
+                f'docker compose exec -T postgres psql -U {db_user} -c "DROP DATABASE IF EXISTS superleme;"',
                 zotonic_root, background=False, use_docker=False
             )
             Executor.run_command(
-                'docker compose exec -T postgres psql -U postgres -c "CREATE DATABASE superleme OWNER superleme;"',
+                f'docker compose exec -T postgres psql -U {db_user} -c "CREATE DATABASE superleme OWNER superleme;"',
                 zotonic_root, background=False, use_docker=False
             )
             
             console.print("[info]Restaurando backup...[/info]")
-            restore_cmd = f'cat "{backup_file}" | docker compose exec -T postgres pg_restore -U postgres --verbose -d superleme'
+            # Note: We still use -U postgres here assuming the role was created successfully above, 
+            # or use db_user if you prefer the restore to run as the main user.
+            restore_cmd = f'cat "{backup_file}" | docker compose exec -T postgres pg_restore -U {db_user} --verbose -d superleme'
             Executor.run_command(restore_cmd, zotonic_root, background=False, use_docker=False)
         else:
             console.print("[info]Restaurando backup localmente...[/info]")

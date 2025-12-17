@@ -1,9 +1,8 @@
 # Dockerfile for Superleme (Zotonic)
-# Gerado automaticamente pelo Aedificator
-# Versões customizadas: Erlang {{ erlang_version }}, PostgreSQL {{ postgres_version }}
+# Fixed to use native Docker arguments
 
-ARG ERLANG_VERSION={{ erlang_version }}
-ARG POSTGRES_VERSION={{ postgres_version }}
+# If you don't provide a version during build, it uses 28.
+ARG ERLANG_VERSION=28
 
 FROM erlang:${ERLANG_VERSION}
 

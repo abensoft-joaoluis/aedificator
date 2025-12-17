@@ -1,0 +1,59 @@
+# Dockerfile para Superleme + Phoenix (Stack Completo)
+# Gerado automaticamente pelo Aedificator
+# Versões: Erlang {{ erlang_version }}, Elixir {{ elixir_version }}, Node.js {{ node_version }}
+
+ARG ELIXIR_VERSION={{ elixir_version }}
+ARG ERLANG_VERSION={{ erlang_version }}
+ARG NODE_VERSION={{ node_version }}
+
+# Use Elixir image como base (já inclui Erlang)
+FROM hexpm/elixir:${ELIXIR_VERSION}-erlang-${ERLANG_VERSION}-debian-bookworm-20250117-slim
+
+# Install system dependencies para ambos Superleme e Phoenix
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    git \
+    libssl-dev \
+    make \
+    imagemagick \
+    libmagickwand-dev \
+    postgresql-client \
+    curl \
+    wget \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION%%.*}.x | bash - && \
+    apt-get install -y nodejs && \
+    npm install -g npm@latest
+
+# Install rebar3 para Zotonic
+RUN wget https://s3.amazonaws.com/rebar3/rebar3 && \
+    chmod +x rebar3 && \
+    mv rebar3 /usr/local/bin/rebar3
+
+# Install hex e rebar para Phoenix
+RUN mix local.hex --force && \
+    mix local.rebar --force
+
+# Create user zotonic
+RUN groupadd -g 1000 zotonic || true && \
+    useradd -m -u 1000 -g zotonic zotonic || true
+
+# Create working directories
+RUN mkdir -p /opt/zotonic /app && \
+    chown -R zotonic:zotonic /opt/zotonic /app
+
+# Set working directory para Superleme
+WORKDIR /opt/zotonic
+
+# Expose ports
+# Zotonic: 8000 (HTTP), 8443 (HTTPS)
+# Phoenix: 4000
+EXPOSE 8000 8443 4000
+
+# Switch to zotonic user
+USER zotonic
+
+CMD ["/bin/bash"]

@@ -31,7 +31,6 @@ class DockerOperations:
 
         console.print(f"[info]Buildando imagem Docker: {image_name}:{image_tag}[/info]")
 
-        # Allow passing build args via environment variables for reproducible builds
         # Append build-arg flags when provided
         arg_flags = ""
         if build_args:
@@ -49,7 +48,7 @@ class DockerOperations:
         Executor.run_command(command, build_context, background=False, use_docker=False)
 
     @staticmethod
-    def push_image(image_name: str, image_tag: str, registry: Optional[str] = None):
+    def push_image(image_name: str, image_tag: str, registry: Optional[str] = None, cwd: Optional[str] = None):
         """
         Push Docker image to registry.
 
@@ -57,15 +56,19 @@ class DockerOperations:
             image_name: Name of the image
             image_tag: Tag of the image
             registry: Optional registry URL (defaults to Docker Hub)
+            cwd: Working directory (defaults to home directory)
         """
         from ..executor import Executor
+
+        if cwd is None:
+            cwd = os.path.expanduser("~")
 
         if registry:
             full_image = f"{registry}/{image_name}:{image_tag}"
             # Tag image with registry
             tag_command = f"docker tag {image_name}:{image_tag} {full_image}"
             Executor.run_command(
-                tag_command, os.getcwd(), background=False, use_docker=False
+                tag_command, cwd, background=False, use_docker=False
             )
         else:
             full_image = f"{image_name}:{image_tag}"
@@ -75,20 +78,27 @@ class DockerOperations:
         command = f"docker push {full_image}"
 
         # Use executor to run with real-time output
-        Executor.run_command(command, os.getcwd(), background=False, use_docker=False)
+        Executor.run_command(command, cwd, background=False, use_docker=False)
 
     @staticmethod
-    def list_images():
-        """List all Docker images."""
+    def list_images(cwd: Optional[str] = None):
+        """List all Docker images.
+
+        Args:
+            cwd: Working directory (defaults to home directory)
+        """
         from ..executor import Executor
+
+        if cwd is None:
+            cwd = os.path.expanduser("~")
 
         console.print("[info]Listando imagens Docker locais:[/info]")
         Executor.run_command(
-            "docker images", os.getcwd(), background=False, use_docker=False
+            "docker images", cwd, background=False, use_docker=False
         )
 
     @staticmethod
-    def remove_image(image_name: str, image_tag: str, force: bool = False):
+    def remove_image(image_name: str, image_tag: str, force: bool = False, cwd: Optional[str] = None):
         """
         Remove Docker image.
 
@@ -96,8 +106,12 @@ class DockerOperations:
             image_name: Name of the image
             image_tag: Tag of the image
             force: Force removal even if image is in use
+            cwd: Working directory (defaults to home directory)
         """
         from ..executor import Executor
+
+        if cwd is None:
+            cwd = os.path.expanduser("~")
 
         full_image = f"{image_name}:{image_tag}"
         console.print(f"[info]Removendo imagem: {full_image}[/info]")
@@ -105,21 +119,25 @@ class DockerOperations:
         force_flag = "-f" if force else ""
         command = f"docker rmi {force_flag} {full_image}"
 
-        Executor.run_command(command, os.getcwd(), background=False, use_docker=False)
+        Executor.run_command(command, cwd, background=False, use_docker=False)
 
     @staticmethod
-    def prune_images(all_images: bool = False):
+    def prune_images(all_images: bool = False, cwd: Optional[str] = None):
         """
         Remove unused Docker images.
 
         Args:
             all_images: Remove all unused images, not just dangling ones
+            cwd: Working directory (defaults to home directory)
         """
         from ..executor import Executor
+
+        if cwd is None:
+            cwd = os.path.expanduser("~")
 
         console.print("[info]Removendo imagens Docker não utilizadas...[/info]")
 
         all_flag = "-a" if all_images else ""
         command = f"docker image prune {all_flag} -f"
 
-        Executor.run_command(command, os.getcwd(), background=False, use_docker=False)
+        Executor.run_command(command, cwd, background=False, use_docker=False)

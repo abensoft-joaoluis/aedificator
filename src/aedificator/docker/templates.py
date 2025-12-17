@@ -33,6 +33,12 @@ class DockerTemplates:
         return template.render(elixir_version=elixir_version, erlang_version=erlang_version, node_version=node_version)
 
     @staticmethod
+    def superleme_phoenix_dockerfile(erlang_version: str, elixir_version: str, node_version: str) -> str:
+        """Render Superleme + Phoenix combined Dockerfile Jinja2 template."""
+        template = DockerTemplates._load_template('superleme_phoenix.Dockerfile.j2')
+        return template.render(erlang_version=erlang_version, elixir_version=elixir_version, node_version=node_version)
+
+    @staticmethod
     def docker_compose(stack_type: str, postgres_version: str) -> str:
         """Render docker-compose Jinja2 template.
 
@@ -48,3 +54,9 @@ class DockerTemplates:
             'postgres_version': postgres_version,
         }
         return template.render(**context)
+
+    @staticmethod
+    def init_postgres_script() -> str:
+        """Render PostgreSQL initialization script Jinja2 template."""
+        template = DockerTemplates._load_template('init-postgres.sh.j2')
+        return template.render()

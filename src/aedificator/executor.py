@@ -10,10 +10,50 @@ from rich.live import Live
 from rich.layout import Layout
 from rich.panel import Panel
 from rich.text import Text
+from unidecode import unidecode
 
 
 class Executor:
     """Handles terminal command execution in project folders."""
+
+    @staticmethod
+    def _safe_decode(byte_data: bytes) -> str:
+        """
+        Dev-Friendly Decoder:
+        1. Prevents crashes from invalid UTF-8.
+        2. Preserves ANSI colors (Green/Red) for developer sanity.
+        3. Still strips dangerous binary control codes that freeze terminals.
+        """
+        if not byte_data:
+            return ""
+            
+        # 1. Try UTF-8 first
+        try:
+            text = byte_data.decode('utf-8')
+        except UnicodeDecodeError:
+            # 2. Fallback to Latin-1 to prevent crashes on binary blobs
+            text = byte_data.decode('latin-1', errors='replace')
+            
+        # 3. Normalize weird characters (like 'ç' -> 'c') 
+        # unidecode preserves ASCII (including Escape codes), so colors stay safe.
+        try:
+            text = unidecode(text)
+        except Exception:
+            pass
+
+        # 4. Sanitize Control Characters, BUT KEEP COLORS
+        # We strip non-printable chars, but we EXPLICITLY ALLOW:
+        # \x09 (Tab), \x0a (Newline), \x0d (Carriage Return), \x1b (ANSI Escape)
+        
+        # The Regex below strips:
+        # \x00-\x08 (Null, Bell, Backspace, etc)
+        # \x0b-\x0c (Vertical Tab, Form Feed)
+        # \x0e-\x1a (Shift Out/In, Device Controls... stops just before \x1b)
+        # \x1c-\x1f (File Separators)
+        # \x7f-\x9f (DEL and C1 Control codes)
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f-\x9f]', '', text)
+        
+        return text
 
     @staticmethod
     def _has_docker_compose(cwd: str) -> bool:
@@ -32,7 +72,6 @@ class Executor:
                 return
 
             env_file = os.path.join(cwd, '.env')
-            # Preserve other env entries if present; update POSTGRES_VERSION and language vars
             env_lines = {}
             if os.path.exists(env_file):
                 try:
@@ -46,7 +85,6 @@ class Executor:
 
             env_lines['POSTGRES_VERSION'] = postgres_version
 
-            # Also set language versions if available
             try:
                 import json as _json
                 langs = _json.loads(docker_config.get('languages', '{}'))
@@ -72,58 +110,29 @@ class Executor:
     def _wrap_with_docker(command: str, cwd: str, use_docker: bool = True, docker_config: Optional[Dict] = None) -> str:
         """Wrap command with docker-compose if needed."""
         if use_docker and Executor._has_docker_compose(cwd):
-            # For Zotonic, use docker compose run instead of exec
-            # because we need to start the service, not execute in running container
             if 'zotonic' in cwd:
-                # Use docker compose run with the command
-                # Set NO_PROXY to avoid proxy issues
-                # Add verbose flags for better debugging
-                # --ansi=never prevents ANSI codes that can cause buffering
-                # stdbuf -o0 -e0 forces unbuffered output
-                # -w sets working directory inside container to /opt/zotonic
-                # --entrypoint="" bypasses the zotonic entrypoint for direct commands like make
                 if command.startswith('make') or command.startswith('bash') or command.startswith('sh') or command.startswith('mise'):
-                    # For build commands, bypass entrypoint and run directly
-                    # Add NO_PROXY and HEX_MIRROR for network issues
-                    docker_cmd = f'NO_PROXY=* stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --entrypoint="" -w /opt/zotonic -e NO_PROXY=* -e http_proxy= -e https_proxy= zotonic {command}'
+                    # Added 'force-color' env vars where possible to encourage tools to output color
+                    docker_cmd = f'NO_PROXY=* stdbuf -o0 -e0 docker compose --ansi=always --verbose --progress=plain -f docker-compose.yml run --rm --entrypoint="" -w /opt/zotonic -e NO_PROXY=* -e TERM=xterm-256color zotonic {command}'
                 else:   
-                    # For zotonic commands, use normal entrypoint
-                    docker_cmd = f'stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --service-ports -w /opt/zotonic zotonic {command}'
+                    docker_cmd = f'stdbuf -o0 -e0 docker compose --ansi=always --verbose --progress=plain -f docker-compose.yml run --rm --service-ports -w /opt/zotonic -e TERM=xterm-256color zotonic {command}'
             elif 'phoenix' in cwd:
-                # For Phoenix, use docker compose run with proper working directory
-                # Phoenix apps typically expect to be in /app directory inside container
-                docker_cmd = f'stdbuf -o0 -e0 docker compose --ansi=never --verbose --progress=plain -f docker-compose.yml run --rm --service-ports -w /app app {command}'
+                docker_cmd = f'stdbuf -o0 -e0 docker compose --ansi=always --verbose --progress=plain -f docker-compose.yml run --rm --service-ports -w /app -e TERM=xterm-256color app {command}'
             else:
-                # For other services, use exec
-                service = 'app'  # Generic service name
-                docker_cmd = f'stdbuf -o0 -e0 docker-compose --ansi=never --verbose exec {service} {command}'
+                service = 'app'
+                docker_cmd = f'stdbuf -o0 -e0 docker-compose --ansi=always --verbose exec -e TERM=xterm-256color {service} {command}'
             return docker_cmd
         return command
 
     @staticmethod
     def run_command(command: str, cwd: str, background: bool = False, use_docker: bool = False, docker_config: Optional[Dict] = None) -> Optional[subprocess.Popen]:
-        """
-        Execute a command in the specified directory.
-
-        Args:
-            command: The command to execute
-            cwd: Working directory path
-            background: If True, run in background and return process
-            use_docker: If True, use Docker to execute commands
-            docker_config: Optional Docker configuration dictionary
-
-        Returns:
-            Process object if background=True, None otherwise
-        """
         if not os.path.exists(cwd):
             console.print(f"[error]Diretório não encontrado: {cwd}[/error]")
             return None
 
-        # Update docker-compose.yml with versions from database before running
         if use_docker and Executor._has_docker_compose(cwd):
             Executor._update_docker_compose_versions(cwd, docker_config)
 
-        # Wrap command with Docker if enabled
         wrapped_command = Executor._wrap_with_docker(command, cwd, use_docker, docker_config)
 
         console.print(f"[info]Executando:[/info] {command}")
@@ -135,7 +144,6 @@ class Executor:
             console.print("[info]Saída do comando (verbose):[/info]")
             console.print("="*80 + "\n")
 
-        # Determine project name for logging
         if 'zotonic' in cwd:
             project_name = 'superleme'
         elif 'phoenix' in cwd:
@@ -145,12 +153,10 @@ class Executor:
         else:
             project_name = os.path.basename(cwd)
 
-        # Create log directory at project root
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         log_dir = os.path.join(project_root, "data", "logs")
         os.makedirs(log_dir, exist_ok=True)
 
-        # Create log file
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         log_filename = os.path.join(log_dir, f"{project_name}_{timestamp}.log")
 
@@ -169,17 +175,16 @@ class Executor:
                 console.print(f"Log: {log_filename}")
                 return process
             else:
-                # Run command with real-time output to console and log file
-                with open(log_filename, 'w', buffering=1) as log_file:
-                    # Set environment variables to force unbuffered output
+                with open(log_filename, 'w', buffering=1, encoding='utf-8', errors='replace') as log_file:
                     env = os.environ.copy()
                     env['PYTHONUNBUFFERED'] = '1'
                     env['DOCKER_BUILDKIT_PROGRESS'] = 'plain'
                     env['BUILDKIT_PROGRESS'] = 'plain'
                     env['COMPOSE_DOCKER_CLI_BUILD'] = '1'
+                    # Force color output in many tools
+                    env['TERM'] = 'xterm-256color'
+                    env['FORCE_COLOR'] = '1'
 
-                    # Run command directly without script wrapper
-                    # The stdbuf in the docker command handles unbuffered output
                     process = subprocess.Popen(
                         wrapped_command,
                         shell=True,
@@ -187,30 +192,34 @@ class Executor:
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         executable='/bin/bash',
-                        bufsize=1,  # line buffered
-                        universal_newlines=True,
+                        bufsize=0,
                         env=env
                     )
 
-                    # Read and print output in real-time
                     console.print("[info]Aguardando saída do comando...[/info]")
 
                     line_count = 0
-                    for line in process.stdout:
+                    
+                    while True:
+                        line_bytes = process.stdout.readline()
+                        if not line_bytes:
+                            if process.poll() is not None:
+                                break
+                            continue
+                            
                         line_count += 1
-                        # Remove carriage returns and ensure proper line endings
-                        # Strip \r to prevent diagonal output
-                        line = line.replace('\r\n', '\n').replace('\r', '\n')
-                        # Ensure line ends with newline
-                        if not line.endswith('\n'):
-                            line = line + '\n'
-                        # Print to console
-                        print(line, end='', flush=True)
-                        # Write to log file
-                        log_file.write(line)
+                        
+                        # Use Safe Decode (Preserving Colors)
+                        line_str = Executor._safe_decode(line_bytes)
+                        
+                        line_str = line_str.replace('\r\n', '\n').replace('\r', '\n')
+                        if not line_str.endswith('\n'):
+                            line_str = line_str + '\n'
+                            
+                        print(line_str, end='', flush=True)
+                        log_file.write(line_str)
                         log_file.flush()
 
-                    # Wait for process to complete
                     process.wait()
                     returncode = process.returncode
 
@@ -229,19 +238,7 @@ class Executor:
 
     @staticmethod
     def run_multiple(commands: List[tuple], background: bool = True, docker_configs: Optional[Dict[str, Dict]] = None) -> List[subprocess.Popen]:
-        """
-        Execute multiple commands simultaneously with live output display.
-
-        Args:
-            commands: List of (command, cwd, use_docker) tuples
-            background: Run all in background
-            docker_configs: Optional dictionary of docker configurations by project
-
-        Returns:
-            List of process objects
-        """
         if not background:
-            # Run sequentially without live display for non-background
             processes = []
             for command_tuple in commands:
                 command, cwd, use_docker = command_tuple
@@ -251,12 +248,10 @@ class Executor:
 
         console.print(f"[info]Executando {len(commands)} comando(s) simultaneamente...[/info]")
 
-        # Start all processes
         process_info = []
         for command_tuple in commands:
             command, cwd, use_docker = command_tuple
 
-            # Determine project name to get correct docker config
             if 'zotonic' in cwd:
                 project_key = 'superleme'
             elif 'phoenix' in cwd:
@@ -266,20 +261,22 @@ class Executor:
 
             docker_config = docker_configs.get(project_key) if docker_configs and project_key else None
 
-            # Update docker-compose.yml with versions from database before running
             if use_docker and Executor._has_docker_compose(cwd):
                 Executor._update_docker_compose_versions(cwd, docker_config)
 
-            # Wrap command with Docker if needed
             wrapped_command = Executor._wrap_with_docker(command, cwd, use_docker, docker_config)
 
-            # Determine project name from cwd
             if 'zotonic' in cwd:
                 project_name = 'Superleme'
             elif 'phoenix' in cwd:
                 project_name = 'SL Phoenix'
             else:
                 project_name = os.path.basename(cwd)
+
+            # Pass color env vars
+            env = os.environ.copy()
+            env['TERM'] = 'xterm-256color'
+            env['FORCE_COLOR'] = '1'
 
             process = subprocess.Popen(
                 wrapped_command,
@@ -288,8 +285,8 @@ class Executor:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 executable='/bin/bash',
-                bufsize=1,
-                universal_newlines=True
+                bufsize=0,
+                env=env
             )
 
             process_info.append({
@@ -302,31 +299,25 @@ class Executor:
         if process_info:
             console.print("[success]Todos os processos iniciados[/success]")
             console.print("[info]Exibindo output em tempo real... Pressione Ctrl+C para parar[/info]\n")
-
-            # Display live output
             Executor._display_live_output(process_info)
 
         return [p['process'] for p in process_info]
 
     @staticmethod
     def _display_live_output(process_info: List[Dict]):
-        """Display live output from multiple processes using Rich Layout."""
-        # Create log directory at project root
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         log_dir = os.path.join(project_root, "data", "logs")
         os.makedirs(log_dir, exist_ok=True)
 
-        # Create log files
         log_files = []
         for proc_info in process_info:
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             log_filename = os.path.join(log_dir, f"{proc_info['name'].replace(' ', '_')}_{timestamp}.log")
-            log_file = open(log_filename, 'w')
+            log_file = open(log_filename, 'w', encoding='utf-8', errors='replace')
             proc_info['log_file'] = log_file
             log_files.append(log_filename)
             console.print(f"Log para {proc_info['name']}: {log_filename}")
 
-        # Create layout
         layout = Layout()
 
         if len(process_info) == 2:
@@ -335,25 +326,26 @@ class Executor:
                 Layout(name="right")
             )
         else:
-            # For more than 2, stack them vertically
             layout.split_column(*[Layout(name=f"proc{i}") for i in range(len(process_info))])
 
-        # Thread function to read process output
         def read_output(proc_info):
             try:
-                for line in proc_info['process'].stdout:
-                    line_stripped = line.rstrip()
+                for line_bytes in iter(proc_info['process'].stdout.readline, b''):
+                    if not line_bytes: break
+                    
+                    # Use Safe Decode (Preserving Colors)
+                    line_str = Executor._safe_decode(line_bytes)
+                    line_stripped = line_str.rstrip()
+                    
                     proc_info['output'].append(line_stripped)
-                    # Write to log file
-                    proc_info['log_file'].write(line)
+                    proc_info['log_file'].write(line_str)
                     proc_info['log_file'].flush()
-                    # Keep only last 50 lines in memory
+                    
                     if len(proc_info['output']) > 50:
                         proc_info['output'].pop(0)
-            except:
+            except Exception as e:
                 pass
 
-        # Start reader threads
         threads = []
         for proc_info in process_info:
             thread = threading.Thread(target=read_output, args=(proc_info,), daemon=True)
@@ -363,15 +355,11 @@ class Executor:
         try:
             with Live(layout, console=console, refresh_per_second=4) as live:
                 while any(p['process'].poll() is None for p in process_info):
-                    # Update each panel
                     for idx, proc_info in enumerate(process_info):
-                        output_text = Text()
+                        output_text = Text.from_ansi(
+                            "".join([line + "\n" for line in proc_info['output'][-30:]])
+                        )
 
-                        # Add output lines
-                        for line in proc_info['output'][-30:]:  # Show last 30 lines
-                            output_text.append(line + "\n")
-
-                        # Check if process is still running
                         status = "Running" if proc_info['process'].poll() is None else f"Exited ({proc_info['process'].returncode})"
                         status_style = "green" if proc_info['process'].poll() is None else "red"
 
@@ -389,21 +377,17 @@ class Executor:
 
                     time.sleep(0.25)
 
-                # Show final state
                 time.sleep(1)
 
         except KeyboardInterrupt:
             console.print("\n[warning]Interrompido pelo usuário[/warning]")
-            # Kill all processes
             for proc_info in process_info:
                 if proc_info['process'].poll() is None:
                     proc_info['process'].terminate()
 
-        # Wait for threads to finish
         for thread in threads:
             thread.join(timeout=1)
 
-        # Close log files
         for proc_info in process_info:
             if 'log_file' in proc_info:
                 proc_info['log_file'].close()
@@ -415,5 +399,4 @@ class Executor:
 
     @staticmethod
     def run_make(target: str, cwd: str, background: bool = False, use_docker: bool = False, docker_config: Optional[Dict] = None) -> Optional[subprocess.Popen]:
-        """Execute a make target in the specified directory."""
         return Executor.run_command(f"make {target}", cwd, background, use_docker, docker_config)
