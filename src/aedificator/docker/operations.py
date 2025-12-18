@@ -5,6 +5,7 @@ Docker operations for building and pushing images.
 import os
 from typing import Optional
 from .. import console
+from ..executor import Executor
 
 
 class DockerOperations:
@@ -27,8 +28,6 @@ class DockerOperations:
             image_tag: Tag for the image (e.g., 'latest')
             build_context: Build context directory
         """
-        from ..executor import Executor
-
         console.print(f"[info]Buildando imagem Docker: {image_name}:{image_tag}[/info]")
 
         # Append build-arg flags when provided
@@ -58,8 +57,6 @@ class DockerOperations:
             registry: Optional registry URL (defaults to Docker Hub)
             cwd: Working directory (defaults to home directory)
         """
-        from ..executor import Executor
-
         if cwd is None:
             cwd = os.path.expanduser("~")
 
@@ -87,8 +84,6 @@ class DockerOperations:
         Args:
             cwd: Working directory (defaults to home directory)
         """
-        from ..executor import Executor
-
         if cwd is None:
             cwd = os.path.expanduser("~")
 
@@ -108,8 +103,6 @@ class DockerOperations:
             force: Force removal even if image is in use
             cwd: Working directory (defaults to home directory)
         """
-        from ..executor import Executor
-
         if cwd is None:
             cwd = os.path.expanduser("~")
 
@@ -130,8 +123,6 @@ class DockerOperations:
             all_images: Remove all unused images, not just dangling ones
             cwd: Working directory (defaults to home directory)
         """
-        from ..executor import Executor
-
         if cwd is None:
             cwd = os.path.expanduser("~")
 

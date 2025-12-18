@@ -1,18 +1,15 @@
 import subprocess
 import os
-import threading
 import time
 import sys
 import re
 from typing import Optional, List, Dict
-from . import console
-from rich.live import Live
-from rich.layout import Layout
-from rich.panel import Panel
-from rich.text import Text
+from aedificator import console
+from config import ConfigManager
+from process import ProcessManager
 from unidecode import unidecode
-import json 
-from .paths import get_logs_dir
+from aedificator.paths import get_logs_dir
+
 
 class Executor:
     """Handles terminal command execution in project folders."""
@@ -62,49 +59,6 @@ class Executor:
         compose_files = ['docker-compose.yml', 'docker-compose.yaml']
         return any(os.path.exists(os.path.join(cwd, f)) for f in compose_files)
 
-    @staticmethod
-    def _update_docker_compose_versions(cwd: str, docker_config: Optional[Dict] = None):
-        """Update docker-compose.yml with versions from database config."""
-        if not docker_config:
-            return
-        try:
-            postgres_version = docker_config.get('postgres_version')
-            if not postgres_version:
-                return
-
-            env_file = os.path.join(cwd, '.env')
-            env_lines = {}
-            if os.path.exists(env_file):
-                try:
-                    with open(env_file, 'r') as f:
-                        for line in f:
-                            if '=' in line:
-                                k, v = line.rstrip('\n').split('=', 1)
-                                env_lines[k] = v
-                except Exception:
-                    env_lines = {}
-
-            env_lines['POSTGRES_VERSION'] = postgres_version
-
-            try:
-                langs = json.loads(docker_config.get('languages', '{}'))
-                if langs.get('erlang'):
-                    env_lines['ERLANG_VERSION'] = langs.get('erlang')
-                if langs.get('elixir'):
-                    env_lines['ELIXIR_VERSION'] = langs.get('elixir')
-                if langs.get('node'):
-                    env_lines['NODE_VERSION'] = langs.get('node')
-            except Exception:
-                pass
-
-            with open(env_file, 'w') as f:
-                for k, v in env_lines.items():
-                    f.write(f"{k}={v}\n")
-
-            console.print(f"[success].env criado/atualizado com POSTGRES_VERSION={postgres_version}[/success]")
-
-        except Exception as e:
-            console.print(f"[warning]Não foi possível criar/atualizar .env: {e}[/warning]")
 
     @staticmethod
     def _wrap_with_docker(command: str, cwd: str, use_docker: bool = True, docker_config: Optional[Dict] = None) -> str:
@@ -131,7 +85,7 @@ class Executor:
             return None
 
         if use_docker and Executor._has_docker_compose(cwd):
-            Executor._update_docker_compose_versions(cwd, docker_config)
+            ConfigManager.update_docker_versions(cwd, docker_config)
 
         wrapped_command = Executor._wrap_with_docker(command, cwd, use_docker, docker_config)
 
@@ -260,7 +214,7 @@ class Executor:
             docker_config = docker_configs.get(project_key) if docker_configs and project_key else None
 
             if use_docker and Executor._has_docker_compose(cwd):
-                Executor._update_docker_compose_versions(cwd, docker_config)
+                ConfigManager.update_docker_versions(cwd, docker_config)
 
             wrapped_command = Executor._wrap_with_docker(command, cwd, use_docker, docker_config)
 
@@ -297,101 +251,9 @@ class Executor:
         if process_info:
             console.print("[success]Todos os processos iniciados[/success]")
             console.print("[info]Exibindo output em tempo real... Pressione Ctrl+C para parar[/info]\n")
-            Executor._display_live_output(process_info)
+            ProcessManager.display_live_output(process_info, Executor._safe_decode)
 
         return [p['process'] for p in process_info]
-
-    @staticmethod
-    def _display_live_output(process_info: List[Dict]):
-        log_dir = get_logs_dir()
-
-        log_files = []
-        for proc_info in process_info:
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            log_filename = os.path.join(log_dir, f"{proc_info['name'].replace(' ', '_')}_{timestamp}.log")
-            log_file = open(log_filename, 'w', encoding='utf-8', errors='replace')
-            proc_info['log_file'] = log_file
-            log_files.append(log_filename)
-            console.print(f"Log para {proc_info['name']}: {log_filename}")
-
-        layout = Layout()
-
-        if len(process_info) == 2:
-            layout.split_row(
-                Layout(name="left"),
-                Layout(name="right")
-            )
-        else:
-            layout.split_column(*[Layout(name=f"proc{i}") for i in range(len(process_info))])
-
-        def read_output(proc_info):
-            try:
-                for line_bytes in iter(proc_info['process'].stdout.readline, b''):
-                    if not line_bytes: break
-                    
-                    # Use Safe Decode (Preserving Colors)
-                    line_str = Executor._safe_decode(line_bytes)
-                    line_stripped = line_str.rstrip()
-                    
-                    proc_info['output'].append(line_stripped)
-                    proc_info['log_file'].write(line_str)
-                    proc_info['log_file'].flush()
-                    
-                    if len(proc_info['output']) > 50:
-                        proc_info['output'].pop(0)
-            except Exception as e:
-                pass
-
-        threads = []
-        for proc_info in process_info:
-            thread = threading.Thread(target=read_output, args=(proc_info,), daemon=True)
-            thread.start()
-            threads.append(thread)
-
-        try:
-            with Live(layout, console=console, refresh_per_second=4) as live:
-                while any(p['process'].poll() is None for p in process_info):
-                    for idx, proc_info in enumerate(process_info):
-                        output_text = Text.from_ansi(
-                            "".join([line + "\n" for line in proc_info['output'][-30:]])
-                        )
-
-                        status = "Running" if proc_info['process'].poll() is None else f"Exited ({proc_info['process'].returncode})"
-                        status_style = "green" if proc_info['process'].poll() is None else "red"
-
-                        panel = Panel(
-                            output_text,
-                            title=f"[bold]{proc_info['name']}[/bold] - [{status_style}]{status}[/{status_style}]",
-                            subtitle=f"{proc_info['command']}",
-                            border_style="cyan" if proc_info['process'].poll() is None else "red"
-                        )
-
-                        if len(process_info) == 2:
-                            layout["left" if idx == 0 else "right"].update(panel)
-                        else:
-                            layout[f"proc{idx}"].update(panel)
-
-                    time.sleep(0.25)
-
-                time.sleep(1)
-
-        except KeyboardInterrupt:
-            console.print("\n[warning]Interrompido pelo usuário[/warning]")
-            for proc_info in process_info:
-                if proc_info['process'].poll() is None:
-                    proc_info['process'].terminate()
-
-        for thread in threads:
-            thread.join(timeout=1)
-
-        for proc_info in process_info:
-            if 'log_file' in proc_info:
-                proc_info['log_file'].close()
-
-        console.print("\n[success]Execução finalizada[/success]")
-        console.print("[info]Logs salvos em:[/info]")
-        for log_file in log_files:
-            console.print(f"  {log_file}")
 
     @staticmethod
     def run_make(target: str, cwd: str, background: bool = False, use_docker: bool = False, docker_config: Optional[Dict] = None) -> Optional[subprocess.Popen]:

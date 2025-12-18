@@ -1,6 +1,7 @@
 import subprocess
 import tempfile
 import os
+import json
 import questionary
 from pathlib import Path
 from aedificator import console
@@ -24,7 +25,9 @@ class Pathing:
         }
 
         # Search locations in priority order
-        search_roots = ["/home/devel", "/home"]
+        # Start with user's home directory for better detection after moves
+        user_home = os.path.expanduser("~")
+        search_roots = ["/home/devel", user_home, "/home"]
 
         for search_root in search_roots:
             if not os.path.exists(search_root):
@@ -85,8 +88,6 @@ class Pathing:
                         # Check if it's the plugin-simulacao Chrome extension
                         if "package.json" in files:
                             try:
-                                import json
-
                                 pkg_path = os.path.join(root, "package.json")
                                 with open(pkg_path, "r") as f:
                                     pkg = json.load(f)

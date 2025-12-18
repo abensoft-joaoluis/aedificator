@@ -69,3 +69,6 @@ data/
 logs/*.log
 _build
 build
+
+# Backup files
+*.backup

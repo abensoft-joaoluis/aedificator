@@ -5,11 +5,27 @@ import signal
 import sys
 import json
 import subprocess
+import time
+import threading
+import secrets
+import asyncio
+from pathlib import Path
 from typing import Optional
-from . import console
-from .executor import Executor
-from .memory import DockerConfiguration
-from .docker import DockerManager
+
+# Fix for Pyrlang split dependencies
+try:
+    from pyrlang import Node
+    from term import Atom
+    PYRLANG_AVAILABLE = True
+except ImportError:
+    PYRLANG_AVAILABLE = False
+
+from aedificator import console
+from aedificator.memory import DockerConfiguration
+from aedificator.docker import DockerManager
+from executor import Executor
+from backup import BackupManager
+from config import ConfigManager
 
 
 class Menu:
@@ -21,14 +37,99 @@ class Menu:
         self.extension_path = extension_path
         self.docker_configs = docker_configs or {}
         self.processes = []
+        
+        # Erlang/Pyrlang State
+        self.py_node = None
+        self.py_node_thread = None
+        self.erlang_cookie = None
+        self.node_name = "aedificator_ctl@localhost"
 
         # Register cleanup handlers
         atexit.register(self._cleanup_processes)
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
+    def _ensure_cookie(self):
+        """
+        Ensures ~/.erlang.cookie exists, has correct permissions (400),
+        and loads it into memory so Python and Erlang share the secret.
+        """
+        cookie_path = Path.home() / ".erlang.cookie"
+        
+        if not cookie_path.exists():
+            console.print("[info]Gerando novo Erlang cookie...[/info]")
+            # Generate a secure random cookie
+            cookie_content = secrets.token_urlsafe(16)
+            with open(cookie_path, 'w') as f:
+                f.write(cookie_content)
+        
+        # Enforce permissions (Erlang requires 400 - read only by owner)
+        try:
+            os.chmod(cookie_path, 0o400)
+        except Exception:
+            pass # Windows or specific FS might ignore this
+        
+        with open(cookie_path, 'r') as f:
+            self.erlang_cookie = f.read().strip()
+            
+        return self.erlang_cookie
+
+    def _ensure_epmd(self):
+        """Ensures the Erlang Port Mapper Daemon is running."""
+        try:
+            # Try to connect to EPMD port to see if it's running
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            result = sock.connect_ex(('127.0.0.1', 4369))
+            sock.close()
+            
+            if result != 0:
+                console.print("[info]Iniciando EPMD (Erlang Port Mapper Daemon)...[/info]")
+                # Start epmd in daemon mode
+                subprocess.Popen(["epmd", "-daemon"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(0.5) # Give it a moment to bind
+        except Exception as e:
+            console.print(f"[warning]Não foi possível verificar/iniciar EPMD: {e}[/warning]")
+
+    def _start_pyrlang_node(self):
+        """Starts the Python script as a hidden Erlang node in the background."""
+        if not PYRLANG_AVAILABLE:
+            return
+
+        if self.py_node:
+            return
+
+        # 1. Ensure EPMD is running before anything else
+        self._ensure_epmd()
+        
+        # 2. Ensure Cookie
+        cookie = self._ensure_cookie()
+
+        def run_node():
+            # Create a new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            try:
+                # Initialize Python as a hidden node. 
+                self.py_node = Node(node_name=self.node_name, cookie=cookie)
+                self.py_node.run()
+            except Exception as e:
+                console.print(f"[error]Falha ao iniciar nó Pyrlang: {e}[/error]")
+
+        # Run as daemon
+        self.py_node_thread = threading.Thread(target=run_node, daemon=True)
+        self.py_node_thread.start()
+        
+        time.sleep(0.2)
+        
     def show_main_menu(self):
         """Display the main menu and handle user selection."""
+        
+        # Start the Erlang node immediately on boot
+        if PYRLANG_AVAILABLE:
+            self._start_pyrlang_node()
+        
         try:
             while True:
                 console.print("\n[info]Menu Principal[/info]")
@@ -70,7 +171,6 @@ class Menu:
         """Display Superleme project menu."""
         console.print("\n[info]Superleme[/info]")
 
-        # Navigate to zotonic root (parent of apps_user/superleme)
         zotonic_root = os.path.dirname(os.path.dirname(self.superleme_path))
         use_docker = self.docker_configs.get('superleme', {}).get('use_docker', False)
         docker_config = self.docker_configs.get('superleme')
@@ -95,19 +195,21 @@ class Menu:
         if choice == "Reconstruir imagem Docker":
             if use_docker:
                 console.print("[info]Atualizando receitas Docker (overwrite)...[/info]")
-                
-                # Force regeneration of Dockerfiles
+
                 dockerfile_path = os.path.join(zotonic_root, "Dockerfile.superleme")
                 compose_path = os.path.join(zotonic_root, "docker-compose.yml")
-                
+
                 DockerManager.generate_superleme_dockerfile(dockerfile_path)
                 DockerManager.generate_docker_compose(compose_path, stack_type='superleme')
+
+                console.print("[info]Garantindo configuração do site...[/info]")
+                ConfigManager.ensure_superleme_config(zotonic_root, self.superleme_path)
                 
                 console.print("[info]Reconstruindo imagem Docker zotonic:latest...[/info]")
                 Executor.run_command("docker compose build --no-cache zotonic", zotonic_root, background=False, use_docker=False)
                 
                 console.print("[info]Restaurando backup do banco de dados...[/info]")
-                self._restore_database(zotonic_root, use_docker)
+                BackupManager.restore_database(zotonic_root, use_docker)
             else:
                 console.print("[warning]Docker não está ativo para este projeto.[/warning]")
 
@@ -121,11 +223,9 @@ class Menu:
                 Executor.run_command("docker compose down --volumes --remove-orphans", zotonic_root, background=False, use_docker=False)
 
                 console.print("[info]Removendo volume zotonic_build explicitamente...[/info]")
-                # _build is a Docker volume, so remove the volume instead of the directory
                 Executor.run_command("docker volume rm zotonic_build 2>/dev/null || true", zotonic_root, background=False, use_docker=False)
 
                 console.print("[info]Criando volume com permissões corretas...[/info]")
-                # Create _build with correct ownership for user 1000:1000
                 Executor.run_command("docker compose run --rm --user root zotonic bash -c 'mkdir -p _build && chown -R 1000:1000 _build'", zotonic_root, background=False, use_docker=False)
 
                 console.print("[info]Executando clean build...[/info]")
@@ -135,16 +235,23 @@ class Menu:
             Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
 
         elif choice == "Executar (debug mode)":
+            if PYRLANG_AVAILABLE and self.py_node:
+                console.print(f"[green]Conexão direta ativa: {self.node_name}[/green]")
+            
+            console.print("[info]Iniciando shell Zotonic... (Você pode digitar comandos aqui)[/info]")
+            
             if use_docker:
-                # Ensure ports are free before running
+                ConfigManager.ensure_superleme_config(zotonic_root, self.superleme_path)
                 Executor.run_command("docker compose down --remove-orphans", zotonic_root, background=False, use_docker=False)
                 cmd = "docker compose run --rm --service-ports zotonic bin/zotonic debug"
             else:
                 cmd = "bin/zotonic debug"
+                
             Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
             
         elif choice == "Iniciar (start)":
             if use_docker:
+                ConfigManager.ensure_superleme_config(zotonic_root, self.superleme_path)
                 cmd = "docker compose up -d zotonic"
             else:
                 cmd = "bin/zotonic start"
@@ -164,7 +271,7 @@ class Menu:
             Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
         
         elif choice == "Restaurar Backup do Banco":
-            self._restore_database(zotonic_root, use_docker)
+            BackupManager.restore_database(zotonic_root, use_docker)
 
     def show_sl_phoenix_menu(self):
         """Display SL Phoenix project menu."""
@@ -353,7 +460,7 @@ class Menu:
         elif choice == "Configurações Docker - SL Phoenix":
             self._configure_phoenix_docker()
         elif choice == "Baixar Novo Backup do Banco":
-            self._download_new_backup()
+            BackupManager.download_backup()
         elif choice == "Limpar Processos Docker em Background":
             self._cleanup_docker_processes()
 
@@ -864,192 +971,3 @@ class Menu:
 
         if confirm:
             DockerManager.prune_images(all_images)
-    
-    def _restore_database(self, zotonic_root, use_docker):
-        """Restore database from backup file."""
-        import glob
-        
-        # Get backup file location
-        src_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        backup_file = os.path.join(src_dir, "data", "backup.backup")
-        
-        if not os.path.exists(backup_file):
-            console.print(f"[error]Arquivo de backup não encontrado: {backup_file}[/error]")
-            console.print("[info]Execute 'Baixar Novo Backup do Banco' nas Configurações primeiro.[/info]")
-            return
-        
-        console.print(f"[info]Usando backup: {backup_file}[/info]")
-        
-        if use_docker:
-            # Copy backup into container and restore
-            console.print("[info]Iniciando container PostgreSQL...[/info]")
-            Executor.run_command("docker compose up -d postgres", zotonic_root, background=False, use_docker=False)
-            
-            # Wait for postgres to be ready
-            console.print("[info]Aguardando PostgreSQL ficar pronto...[/info]")
-            Executor.run_command("sleep 5", zotonic_root, background=False, use_docker=False)
-
-            # [MODIFIED] Detect DB User from .env to avoid "role does not exist" errors
-            db_user = "postgres"
-            env_path = os.path.join(zotonic_root, ".env")
-            if os.path.exists(env_path):
-                try:
-                    with open(env_path, 'r') as f:
-                        for line in f:
-                            if line.strip().startswith("POSTGRES_USER="):
-                                db_user = line.split("=")[1].strip()
-                                break
-                except Exception:
-                    pass
-            
-            console.print(f"[info]Conectando como superusuário: {db_user}[/info]")
-
-            # [MODIFIED] Use detected db_user for the initial connection
-            console.print("[info]Criando roles...[/info]")
-            Executor.run_command(
-                f'docker compose exec -T postgres psql -U {db_user} -c "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = \'postgres\') THEN CREATE ROLE postgres WITH LOGIN SUPERUSER; END IF; END$$;"',
-                zotonic_root, background=False, use_docker=False
-            )
-
-            # Create the necessary roles
-            Executor.run_command(
-                f'docker compose exec -T postgres psql -U {db_user} -c "DROP ROLE IF EXISTS superleme_ro; CREATE ROLE superleme_ro;"',
-                zotonic_root, background=False, use_docker=False
-            )
-            # Cannot drop the user we might be logged in as, so wrap in try/catch or ignore failure if db_user == superleme
-            if db_user != "superleme":
-                Executor.run_command(
-                    f'docker compose exec -T postgres psql -U {db_user} -c "DROP ROLE IF EXISTS superleme; CREATE ROLE superleme WITH LOGIN PASSWORD \'superleme\';"',
-                    zotonic_root, background=False, use_docker=False
-                )
-            
-            # Drop and recreate database
-            console.print("[info]Recriando banco de dados...[/info]")
-            Executor.run_command(
-                f'docker compose exec -T postgres psql -U {db_user} -c "DROP DATABASE IF EXISTS superleme;"',
-                zotonic_root, background=False, use_docker=False
-            )
-            Executor.run_command(
-                f'docker compose exec -T postgres psql -U {db_user} -c "CREATE DATABASE superleme OWNER superleme;"',
-                zotonic_root, background=False, use_docker=False
-            )
-            
-            console.print("[info]Restaurando backup...[/info]")
-            # Note: We still use -U postgres here assuming the role was created successfully above, 
-            # or use db_user if you prefer the restore to run as the main user.
-            restore_cmd = f'cat "{backup_file}" | docker compose exec -T postgres pg_restore -U {db_user} --verbose -d superleme'
-            Executor.run_command(restore_cmd, zotonic_root, background=False, use_docker=False)
-        else:
-            console.print("[info]Restaurando backup localmente...[/info]")
-            restore_cmd = f'sudo -u postgres pg_restore --verbose -d superleme "{backup_file}"'
-            Executor.run_command(restore_cmd, zotonic_root, background=False, use_docker=False)
-        
-        console.print("[success]Restauração concluída![/success]")
-    
-    def _download_new_backup(self):
-        """Download a new backup file from remote server."""
-        from pathing.main import Pathing
-        import glob
-        
-        console.print("\n[info]Download de Novo Backup[/info]")
-        
-        # Find .pem file in ~/.ssh
-        ssh_dir = os.path.expanduser("~/.ssh")
-        pem_files = glob.glob(os.path.join(ssh_dir, "*.pem"))
-        
-        if not pem_files:
-            console.print("[warning]Nenhum arquivo .pem encontrado em ~/.ssh[/warning]")
-            console.print("[info]Selecione o arquivo .pem usando o navegador de arquivos[/info]")
-            pem_file = Pathing.select_file(ssh_dir)
-            
-            if not pem_file or not os.path.exists(pem_file):
-                console.print("[error]Arquivo .pem não encontrado. Download cancelado.[/error]")
-                return
-        elif len(pem_files) == 1:
-            pem_file = pem_files[0]
-            console.print(f"[success]Arquivo .pem encontrado: {pem_file}[/success]")
-        else:
-            # Multiple .pem files found, let user choose with file browser
-            console.print(f"[info]Encontrados {len(pem_files)} arquivos .pem em ~/.ssh[/info]")
-            console.print("[info]Selecione o arquivo .pem desejado usando o navegador de arquivos[/info]")
-            pem_file = Pathing.select_file(ssh_dir)
-            
-            if not pem_file or not os.path.exists(pem_file):
-                console.print("[error]Arquivo .pem não selecionado. Download cancelado.[/error]")
-                return
-        
-        # List files in remote directory
-        remote_host = "ubuntu@teste1x.superleme.com.br"
-        remote_dir = "/home/ubuntu/bkps"
-        
-        console.print(f"\n[info]Listando arquivos em {remote_host}:{remote_dir}[/info]")
-        
-        try:
-            ssh_command = f'ssh -i "{pem_file}" {remote_host} "ls -1 {remote_dir}/*.backup"'
-            result = subprocess.run(
-                ssh_command,
-                shell=True,
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            
-            # Parse filenames from output
-            files = [os.path.basename(f.strip()) for f in result.stdout.strip().split('\n') if f.strip()]
-            
-            if not files:
-                console.print("[error]Nenhum arquivo .backup encontrado no servidor[/error]")
-                return
-            
-            # Let user select file
-            selected_file = questionary.select(
-                "Selecione o arquivo de backup para baixar:",
-                choices=files
-            ).ask()
-            
-            if not selected_file:
-                console.print("[info]Nenhum arquivo selecionado. Download cancelado.[/info]")
-                return
-            
-        except subprocess.CalledProcessError as e:
-            console.print(f"[error]Erro ao listar arquivos no servidor:[/error]")
-            console.print(f"[error]{e.stderr}[/error]")
-            return
-        except Exception as e:
-            console.print(f"[error]Erro ao conectar ao servidor: {str(e)}[/error]")
-            return
-        
-        # Use predictable location in src/data
-        src_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        data_dir = os.path.join(src_dir, "data")
-        os.makedirs(data_dir, exist_ok=True)
-        
-        backup_file = os.path.join(data_dir, "backup.backup")
-        
-        remote_file = f"{remote_dir}/{selected_file}"
-        scp_command = f'scp -v -i "{pem_file}" {remote_host}:{remote_file} "{backup_file}"'
-        
-        console.print(f"\n[info]Executando: {scp_command}[/info]\n")
-        sys.stdout.flush()
-        sys.stderr.flush()
-        
-        try:
-            result = subprocess.run(
-                scp_command,
-                shell=True,
-                check=True
-            )
-            
-            sys.stdout.flush()
-            sys.stderr.flush()
-            
-            if os.path.exists(backup_file):
-                console.print(f"[success]Backup baixado com sucesso: {backup_file}[/success]")
-            else:
-                console.print("[warning]Comando executado, mas arquivo não encontrado no destino[/warning]")
-                
-        except subprocess.CalledProcessError as e:
-            console.print(f"[error]Erro ao baixar backup:[/error]")
-            console.print(f"[error]{e.stderr}[/error]")
-        except Exception as e:
-            console.print(f"[error]Erro ao executar comando SCP: {str(e)}[/error]")

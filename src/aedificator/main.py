@@ -9,7 +9,8 @@ import subprocess
 import glob
 from . import console
 from .memory import initialize_database, Paths, DockerConfiguration
-from .menu import Menu
+from menu import Menu
+from .paths import get_data_dir, get_backup_file
 
 class Main():
     def __init__(self):
@@ -29,12 +30,37 @@ class Main():
 
         is_first_install = not selected or not has_docker_config
 
-        # Try auto-detection if not in database
+        # Validate existing paths - if they don't exist, invalidate them
+        need_redetection = False
+        if selected:
+            invalid_paths = []
+            if selected.superleme_path and not os.path.exists(selected.superleme_path):
+                invalid_paths.append("Superleme")
+            if selected.sl_phoenix_path and not os.path.exists(selected.sl_phoenix_path):
+                invalid_paths.append("SL Phoenix")
+            if selected.extension_path and not os.path.exists(selected.extension_path):
+                invalid_paths.append("Extensão")
+
+            if invalid_paths:
+                self.console.print(f"[warning]Caminhos inválidos detectados: {', '.join(invalid_paths)}[/warning]")
+                self.console.print("[info]Executando detecção automática para encontrar novos caminhos...[/info]")
+                need_redetection = True
+
+        # Try auto-detection if not in database or if paths became invalid
         auto_detected = None
-        if not selected or not all([selected.superleme_path, selected.sl_phoenix_path, selected.extension_path]):
-            self.console.print("[info]Detectando pastas do projeto automaticamente...[/info]")
+        should_detect = (
+            not selected or
+            need_redetection or
+            not all([selected.superleme_path, selected.sl_phoenix_path, selected.extension_path])
+        )
+
+        if should_detect:
+            if not need_redetection:
+                self.console.print("[info]Detectando pastas do projeto automaticamente...[/info]")
+
             auto_detected = Pathing.auto_detect_folders()
             detected_count = sum(1 for v in auto_detected.values() if v)
+
             if detected_count > 0:
                 self.console.print(f"[success]Detectadas {detected_count} pastas[/success]")
                 if auto_detected["superleme_path"]:
@@ -133,19 +159,23 @@ class Main():
             except:
                 docker_configs['sl_phoenix'] = {'use_docker': False}
 
-        # Use database > auto-detection > user selection (in that priority order)
+        # Use database (if valid) > auto-detection > user selection (in that priority order)
+        # Helper to get valid path from database or None
+        def get_valid_path(path):
+            return path if path and os.path.exists(path) else None
+
         self.superleme_folder = (
-            (selected.superleme_path if selected else None) or
+            get_valid_path(selected.superleme_path if selected else None) or
             (auto_detected["superleme_path"] if auto_detected else None) or
             Pathing.select_folder()
         )
         self.sl_phoenix_folder = (
-            (selected.sl_phoenix_path if selected else None) or
+            get_valid_path(selected.sl_phoenix_path if selected else None) or
             (auto_detected["sl_phoenix_path"] if auto_detected else None) or
             Pathing.select_folder()
         )
         self.extension_folder = (
-            (selected.extension_path if selected else None) or
+            get_valid_path(selected.extension_path if selected else None) or
             (auto_detected["extension_path"] if auto_detected else None) or
             Pathing.select_folder()
         )
@@ -273,12 +303,7 @@ class Main():
             self.console.print(f"[error]Erro ao conectar ao servidor: {str(e)}[/error]")
             return
         
-        # Use predictable location in src/data
-        src_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        data_dir = os.path.join(src_dir, "data")
-        os.makedirs(data_dir, exist_ok=True)
-        
-        backup_file = os.path.join(data_dir, "backup.backup")
+        backup_file = get_backup_file()
         
         remote_file = f"{remote_dir}/{selected_file}"
         scp_command = f'scp -v -i "{pem_file}" {remote_host}:{remote_file} "{backup_file}"'

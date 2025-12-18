@@ -1,10 +1,11 @@
 import os
 from peewee import SqliteDatabase
+from aedificator.paths import get_data_dir, get_db_path
 
-# Get the src/ directory (two levels up from this file: memory/db.py -> aedificator/ -> src/)
-SRC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DB_DIR = os.path.join(SRC_DIR, "data")
-DB_FILE = os.path.join(DB_DIR, "aedificator.db")
+
+DB_DIR = get_data_dir()
+DB_FILE = get_db_path()
+
 
 def database():
     """Return a peewee SqliteDatabase instance pointing at DB_FILE."""

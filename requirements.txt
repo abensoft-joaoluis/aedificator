@@ -4,3 +4,5 @@ ranger-fm
 peewee
 jinja2
 unidecode
+git+https://github.com/Pyrlang/Term.git#egg=pyrlang-term
+git+https://github.com/Pyrlang/Pyrlang.git#egg=pyrlang
