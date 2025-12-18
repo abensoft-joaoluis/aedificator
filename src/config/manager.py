@@ -72,7 +72,7 @@ class ConfigManager:
 
             # We use 'cat' inside docker to receive the file content from stdin
             # This avoids mounting volumes or copying files manually
-            write_cmd = f'docker compose run --rm -i zotonic bash -c "cat > {config_file_path}" < "{template_path}"'
+            write_cmd = f'docker compose run --rm -T -i zotonic bash -c "cat > {config_file_path}" < "{template_path}"'
             
             result = subprocess.run(write_cmd, shell=True, cwd=zotonic_root)
 
