@@ -58,9 +58,8 @@ class ConfigManager:
         # Paths
         config_file_path = "/opt/zotonic/apps_user/superleme/priv/zotonic_site.config"
         
-        # Locate the template relative to this script (src/config.py -> src/config/templates/superleme.config)
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        template_path = os.path.join(current_dir, "config", "templates", "superleme.config")
+        template_path = os.path.join(current_dir, "templates", "superleme.config")
         
         console.print(f"[info]Procurando template em: {template_path}[/info]")
 
