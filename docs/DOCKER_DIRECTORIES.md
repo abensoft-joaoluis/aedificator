@@ -81,7 +81,7 @@ services:
       - .:/app
     environment:
       - MIX_ENV=dev
-      - DATABASE_URL=postgres://postgres:postgres@db:5432/app_dev
+      - DATABASE_URL=postgres://postgres:postgres@db:15432/app_dev
 ```
 
 ### Extensão (Node.js/Plugin)

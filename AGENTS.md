@@ -133,6 +133,58 @@ env['DOCKER_BUILDKIT_PROGRESS'] = 'plain'
 env['NO_PROXY'] = '*'  # Para Zotonic
 ```
 
+### Configuração de Portas PostgreSQL
+
+**CRÍTICO**: Entenda a diferença entre portas internas e externas no Docker:
+
+- **Porta INTERNA** (comunicação entre containers): **5432**
+- **Porta EXTERNA** (acesso do host ao container): **15432**
+
+**Razão para porta externa 15432**: A porta 5432 já está em uso no host pela instalação local do PostgreSQL.
+
+```erlang
+% Configuração CORRETA no zotonic_site.config
+% Zotonic roda DENTRO do Docker, então usa porta INTERNA
+{dbhost, "postgres"},
+{dbport, 5432},  % ✅ Porta interna do container PostgreSQL
+{dbuser, "postgres"},
+{dbpassword, "abensoft"}
+```
+
+```bash
+# Acesso do HOST ao PostgreSQL (para debug, psql, DBeaver)
+psql -h localhost -p 15432 -U postgres -d superleme
+
+# Dentro do Docker, containers usam a porta interna 5432
+docker compose exec zotonic psql -h postgres -p 5432 -U postgres
+```
+
+**Regra de Ouro**:
+- **Container → Container**: porta **5432** (rede interna Docker)
+- **Host → Container**: porta **15432** (mapeamento externo)
+
+### Estrutura de Apps Zotonic
+
+Sites Zotonic seguem uma estrutura específica de diretórios com duplicação do nome:
+
+```
+/opt/zotonic/apps_user/
+└── superleme/                    # Diretório raiz do projeto
+    ├── superleme/                # App Zotonic principal (DUPLICAÇÃO INTENCIONAL)
+    │   ├── priv/
+    │   │   └── zotonic_site.config  # ✅ Arquivo de configuração AQUI
+    │   └── src/
+    │       └── superleme.app.src
+    ├── zotonic_mod_sl_*/         # Módulos do projeto
+    └── priv/                     # ❌ NÃO colocar zotonic_site.config aqui
+```
+
+**Localização correta**: `/opt/zotonic/apps_user/superleme/superleme/priv/zotonic_site.config`
+
+**Localização INCORRETA**: `/opt/zotonic/apps_user/superleme/priv/zotonic_site.config`
+
+Esta estrutura é padrão do Zotonic e deve ser respeitada.
+
 ## 🔧 Modificações Comuns
 
 ### Adicionar Nova Funcionalidade ao Menu

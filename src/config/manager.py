@@ -54,9 +54,8 @@ class ConfigManager:
     @staticmethod
     def ensure_superleme_config(zotonic_root, superleme_path):
         """Force-create the correct zotonic_site.config in the container using local template."""
-        
-        # Paths
-        config_file_path = "/opt/zotonic/apps_user/superleme/priv/zotonic_site.config"
+
+        config_file_path = "/opt/zotonic/apps_user/superleme/superleme/priv/zotonic_site.config"
         
         current_dir = os.path.dirname(os.path.abspath(__file__))
         template_path = os.path.join(current_dir, "templates", "superleme.config")
@@ -70,10 +69,21 @@ class ConfigManager:
         try:
             console.print("[info]Escrevendo zotonic_site.config no container...[/info]")
 
-            # We use 'cat' inside docker to receive the file content from stdin
+            # First, ensure the directory exists
+            config_dir = os.path.dirname(config_file_path)
+            mkdir_cmd = f'docker compose run --rm -T zotonic bash -c "mkdir -p {config_dir}"'
+
+            console.print(f"[info]Criando diretório: {config_dir}[/info]")
+            mkdir_result = subprocess.run(mkdir_cmd, shell=True, cwd=zotonic_root, capture_output=True, text=True)
+
+            if mkdir_result.returncode != 0:
+                console.print(f"[error]Erro ao criar diretório: {mkdir_result.stderr}[/error]")
+                return
+
+            # Now write the config file using cat with stdin redirection
             # This avoids mounting volumes or copying files manually
             write_cmd = f'docker compose run --rm -T -i zotonic bash -c "cat > {config_file_path}" < "{template_path}"'
-            
+
             result = subprocess.run(write_cmd, shell=True, cwd=zotonic_root)
 
             if result.returncode == 0:

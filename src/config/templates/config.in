@@ -12,7 +12,7 @@
 
     % PostgreSQL database connection
     {dbhost, "127.0.0.1"},
-    {dbport, 5432},
+    {dbport, 15432},
     %Usar o usuário superleme
     {dbuser, "postgres"},
     {dbpassword, "abensoft"},

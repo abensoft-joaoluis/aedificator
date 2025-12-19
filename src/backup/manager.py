@@ -191,31 +191,7 @@ class BackupManager:
 
         # Post-restore sync
         console.print("\n[info]Banco restaurado com sucesso![/info]")
-        should_sync = questionary.confirm(
-            "Deseja iniciar o Zotonic e sincronizar schemas agora? (Recomendado)",
-            default=True
-        ).ask()
-
-        if should_sync:
-            console.print("[info]Iniciando Zotonic...[/info]")
-            Executor.run_command("docker compose up -d zotonic", zotonic_root, background=False, use_docker=False)
-
-            console.print("[info]Aguardando Zotonic inicializar (15s)...[/info]")
-            time.sleep(15)
-
-            console.print("[info]Executando comandos de upgrade e sync...[/info]")
-            cmds = [
-                ("Upgrade", 'superleme:upgrade().'),
-                ("Sync Schema", 'sl_model_schema:sync_rel_mov_processo(z:c(superleme)).')
-            ]
-
-            for label, erl_cmd in cmds:
-                console.print(f"[info]Executando: {label}[/info]")
-                full_cmd = f'docker compose exec -T zotonic bin/zotonic eval "{erl_cmd}"'
-                Executor.run_command(full_cmd, zotonic_root, background=False, use_docker=False)
-
-            console.print("[success]Sincronização concluída![/success]")
-
+        
     @staticmethod
     def _restore_local(zotonic_root, backup_file):
         """Restore database locally without Docker."""
