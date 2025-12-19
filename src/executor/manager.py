@@ -25,30 +25,18 @@ class Executor:
         if not byte_data:
             return ""
             
-        # 1. Try UTF-8 first
         try:
             text = byte_data.decode('utf-8')
         except UnicodeDecodeError:
-            # 2. Fallback to Latin-1 to prevent crashes on binary blobs
             text = byte_data.decode('latin-1', errors='replace')
             
-        # 3. Normalize weird characters (like 'ç' -> 'c') 
-        # unidecode preserves ASCII (including Escape codes), so colors stay safe.
+ 
+
         try:
             text = unidecode(text)
         except Exception:
             pass
 
-        # 4. Sanitize Control Characters, BUT KEEP COLORS
-        # We strip non-printable chars, but we EXPLICITLY ALLOW:
-        # \x09 (Tab), \x0a (Newline), \x0d (Carriage Return), \x1b (ANSI Escape)
-        
-        # The Regex below strips:
-        # \x00-\x08 (Null, Bell, Backspace, etc)
-        # \x0b-\x0c (Vertical Tab, Form Feed)
-        # \x0e-\x1a (Shift Out/In, Device Controls... stops just before \x1b)
-        # \x1c-\x1f (File Separators)
-        # \x7f-\x9f (DEL and C1 Control codes)
         text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f-\x9f]', '', text)
         
         return text
@@ -66,7 +54,6 @@ class Executor:
         if use_docker and Executor._has_docker_compose(cwd):
             if 'zotonic' in cwd:
                 if command.startswith('make') or command.startswith('bash') or command.startswith('sh') or command.startswith('mise'):
-                    # Added 'force-color' env vars where possible to encourage tools to output color
                     docker_cmd = f'NO_PROXY=* stdbuf -o0 -e0 docker compose --ansi=always --verbose --progress=plain -f docker-compose.yml run --rm --entrypoint="" -w /opt/zotonic -e NO_PROXY=* -e TERM=xterm-256color zotonic {command}'
                 else:   
                     docker_cmd = f'stdbuf -o0 -e0 docker compose --ansi=always --verbose --progress=plain -f docker-compose.yml run --rm --service-ports -w /opt/zotonic -e TERM=xterm-256color zotonic {command}'
@@ -161,7 +148,6 @@ class Executor:
                             
                         line_count += 1
                         
-                        # Use Safe Decode (Preserving Colors)
                         line_str = Executor._safe_decode(line_bytes)
                         
                         line_str = line_str.replace('\r\n', '\n').replace('\r', '\n')

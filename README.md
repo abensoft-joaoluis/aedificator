@@ -302,19 +302,37 @@ Aedificator/
 └── requirements.txt            # Dependências Python
 ```
 
-## Contribuindo
+## Ordem de Execução - Superleme
 
-Mantido pela Abensoft.
+As opções do menu Superleme estão numeradas na ordem correta de execução:
 
-1. Fork o projeto
-2. Crie branch: `git checkout -b feature/nome`
-3. Commit: `git commit -m 'Descrição'`
-4. Push: `git push origin feature/nome`
-5. Abra Pull Request
+### Fluxo Inicial (Setup)
 
-## Licença
+1. **Reconstruir imagem Docker** - Reconstrói a imagem Docker do Zotonic
+2. **Recompilar (Clean & Make)** - Limpa e recompila o projeto
+3. **Executar (debug mode)** - Inicia o shell Erlang em modo debug
 
-Propriedade da Abensoft.
+### Comandos Pós-Execução (Shell Erlang)
+
+Após executar a opção **3. Executar (debug mode)**, você entrará no shell Erlang do Zotonic. Execute os seguintes comandos dentro do shell:
+
+```erlang
+% Atualiza o schema do banco de dados
+superleme:upgrade().
+
+% Sincroniza a tabela de relacionamento de processos
+sl_model_schema:sync_rel_mov_processo(z:c(superleme)).
+```
+
+### Restauração de Backup
+
+4. **Restaurar Backup do Banco de Dados** - Restaura o backup mais recente do banco de dados
+   - **Importante**: Execute esta opção somente após o banco de dados ter sido criado (após a primeira execução)
+   - Disponível apenas no modo Docker
+
+### Utilitários
+
+5. **Parar (stop)** - Para o Zotonic e derruba os containers Docker
 
 ## Troubleshooting
 
