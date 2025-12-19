@@ -140,20 +140,28 @@ class BackupManager:
         console.print("[info]Aguardando PostgreSQL ficar pronto...[/info]")
         Executor.run_command("sleep 5", zotonic_root, background=False, use_docker=False)
 
-        # Detect DB user
-        db_user = "postgres"
-        env_path = os.path.join(zotonic_root, ".env")
-        if os.path.exists(env_path):
+        # Read DB user from zotonic_site.config template
+        zotonic_db_user = "postgres"  # Default fallback
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        template_path = os.path.join(current_dir, "templates", "superleme.config")
+
+        if os.path.exists(template_path):
             try:
-                with open(env_path, 'r') as f:
+                with open(template_path, 'r') as f:
                     for line in f:
-                        if line.strip().startswith("POSTGRES_USER="):
-                            db_user = line.split("=")[1].strip()
-                            break
+                        if '{dbuser,' in line:
+                            # Extract value from {dbuser, "postgres"}
+                            parts = line.split('"')
+                            if len(parts) >= 2:
+                                zotonic_db_user = parts[1]
+                                break
             except Exception:
                 pass
 
-        console.print(f"[info]Conectando como superusuário: {db_user}[/info]")
+        # Superuser for administrative operations (creating DBs, roles, etc)
+        db_user = "postgres"
+
+        console.print(f"[info]DB Admin: {db_user}, Zotonic User: {zotonic_db_user}[/info]")
 
         # Create roles
         console.print("[info]Criando roles...[/info]")
@@ -173,6 +181,7 @@ class BackupManager:
                 zotonic_root, background=False, use_docker=False
             )
 
+
         # Recreate database
         console.print("[info]Recriando banco de dados...[/info]")
         Executor.run_command(
@@ -189,8 +198,26 @@ class BackupManager:
         restore_cmd = f'cat "{backup_file}" | docker compose exec -T postgres pg_restore -U {db_user} --verbose -d superleme'
         Executor.run_command(restore_cmd, zotonic_root, background=False, use_docker=False)
 
+        # Fix permissions on schema (grant to the user defined in zotonic_site.config)
+        console.print(f"[info]Corrigindo permissões do schema para usuário: {zotonic_db_user}[/info]")
+
+        permissions_sql = f"""
+            GRANT USAGE ON SCHEMA schema_superleme TO {zotonic_db_user};
+            GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA schema_superleme TO {zotonic_db_user};
+            GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA schema_superleme TO {zotonic_db_user};
+            GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA schema_superleme TO {zotonic_db_user};
+            ALTER DEFAULT PRIVILEGES IN SCHEMA schema_superleme GRANT ALL ON TABLES TO {zotonic_db_user};
+            ALTER DEFAULT PRIVILEGES IN SCHEMA schema_superleme GRANT ALL ON SEQUENCES TO {zotonic_db_user};
+        """
+
+        Executor.run_command(
+            f'docker compose exec -T postgres psql -U {db_user} -d superleme -c "{permissions_sql}"',
+            zotonic_root, background=False, use_docker=False
+        )
+
         # Post-restore sync
         console.print("\n[info]Banco restaurado com sucesso![/info]")
+        console.print("[success]Permissões configuradas![/success]")
         
     @staticmethod
     def _restore_local(zotonic_root, backup_file):

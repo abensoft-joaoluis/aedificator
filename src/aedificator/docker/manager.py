@@ -128,7 +128,6 @@ class DockerManager:
         Args:
             output_path: Path where to write the Dockerfile
         """
-        # Load configurations from both projects
         superleme_config = DockerManager.load_config_from_db("superleme")
         phoenix_config = DockerManager.load_config_from_db("sl_phoenix")
 
