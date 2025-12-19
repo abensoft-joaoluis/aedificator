@@ -2,9 +2,9 @@
 
 Este arquivo contém instruções específicas para Claude (Anthropic) ao trabalhar com o projeto Aedificator.
 
-## 🌐 Idioma
-
-**REGRA FUNDAMENTAL**: Keep all printing operations exclusively in the language **PORTUGUESE**.
+REGRAS FUNDAMENTAIS: 
+Keep all printing operations exclusively in the language **PORTUGUESE**.
+Don't run long operations like make, compile or compose. This will only waste tokens.
 
 Todas as mensagens de console, prints, logs e comunicação com o usuário devem estar em PORTUGUÊS BRASILEIRO.
 

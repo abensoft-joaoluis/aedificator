@@ -187,7 +187,7 @@ class Menu:
                 "Iniciar (start)",
                 "Parar (stop)",
                 "Status",
-                "Restaurar Backup do Banco",
+                "Restaurar Backup do Banco de Dados",
                 "Voltar"
             ]
         ).ask()
@@ -204,12 +204,9 @@ class Menu:
 
                 console.print("[info]Garantindo configuração do site...[/info]")
                 ConfigManager.ensure_superleme_config(zotonic_root, self.superleme_path)
-                
+
                 console.print("[info]Reconstruindo imagem Docker zotonic:latest...[/info]")
                 Executor.run_command("docker compose build --no-cache zotonic", zotonic_root, background=False, use_docker=False)
-                
-                console.print("[info]Restaurando backup do banco de dados...[/info]")
-                BackupManager.restore_database(zotonic_root, use_docker)
             else:
                 console.print("[warning]Docker não está ativo para este projeto.[/warning]")
 
@@ -237,16 +234,16 @@ class Menu:
         elif choice == "Executar (debug mode)":
             if PYRLANG_AVAILABLE and self.py_node:
                 console.print(f"[green]Conexão direta ativa: {self.node_name}[/green]")
-            
+
             console.print("[info]Iniciando shell Zotonic... (Você pode digitar comandos aqui)[/info]")
-            
+
             if use_docker:
                 ConfigManager.ensure_superleme_config(zotonic_root, self.superleme_path)
                 Executor.run_command("docker compose down --remove-orphans", zotonic_root, background=False, use_docker=False)
                 cmd = "docker compose run --rm --service-ports zotonic bin/zotonic debug"
             else:
                 cmd = "bin/zotonic debug"
-                
+
             Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
             
         elif choice == "Iniciar (start)":
@@ -269,9 +266,13 @@ class Menu:
             else:
                 cmd = "bin/zotonic status"
             Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
-        
-        elif choice == "Restaurar Backup do Banco":
-            BackupManager.restore_database(zotonic_root, use_docker)
+
+        elif choice == "Restaurar Backup do Banco de Dados":
+            if use_docker:
+                console.print("[info]Restaurando backup do banco de dados...[/info]")
+                BackupManager.restore_database(zotonic_root, use_docker)
+            else:
+                console.print("[warning]Restauração de backup disponível apenas no modo Docker.[/warning]")
 
     def show_sl_phoenix_menu(self):
         """Display SL Phoenix project menu."""

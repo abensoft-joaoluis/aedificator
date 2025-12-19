@@ -13,8 +13,11 @@ O sistema oferece menu interativo, suporte Docker, execução em tempo real e co
 
 ## 📋 Regras Gerais
 
-### Idioma
-**IMPORTANTE**: Todos os prints, mensagens de console e comunicação com o usuário DEVEM estar em **PORTUGUÊS**.
+### 
+**IMPORTANTE**: 
+Todos os prints, mensagens de console e comunicação com o usuário DEVEM estar em **PORTUGUÊS**.
+Don't run long operations like make, compile or compose. This will only waste tokens.
+
 
 ```python
 # ✅ CORRETO
