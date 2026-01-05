@@ -34,6 +34,40 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     ALTER USER zotonic WITH CREATEDB;
 EOSQL
 
+# Configurar schema no database superleme
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "superleme" <<-EOSQL
+    -- Criar schema schema_superleme se não existir
+    CREATE SCHEMA IF NOT EXISTS schema_superleme;
+
+    -- Garantir que postgres é o owner do schema
+    ALTER SCHEMA schema_superleme OWNER TO postgres;
+
+    -- Aplicar permissões no schema para os usuários postgres e zotonic
+    GRANT ALL ON SCHEMA schema_superleme TO postgres;
+    GRANT ALL ON SCHEMA schema_superleme TO zotonic;
+    GRANT USAGE ON SCHEMA schema_superleme TO postgres;
+    GRANT USAGE ON SCHEMA schema_superleme TO zotonic;
+
+    -- Aplicar permissões em TODAS as tabelas, sequências e funções EXISTENTES
+    GRANT ALL ON ALL TABLES IN SCHEMA schema_superleme TO postgres;
+    GRANT ALL ON ALL TABLES IN SCHEMA schema_superleme TO zotonic;
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA schema_superleme TO postgres;
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA schema_superleme TO zotonic;
+    GRANT ALL ON ALL FUNCTIONS IN SCHEMA schema_superleme TO postgres;
+    GRANT ALL ON ALL FUNCTIONS IN SCHEMA schema_superleme TO zotonic;
+
+    -- Configurar permissões default para objetos futuros no schema
+    ALTER DEFAULT PRIVILEGES IN SCHEMA schema_superleme GRANT ALL ON TABLES TO postgres;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA schema_superleme GRANT ALL ON TABLES TO zotonic;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA schema_superleme GRANT ALL ON SEQUENCES TO postgres;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA schema_superleme GRANT ALL ON SEQUENCES TO zotonic;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA schema_superleme GRANT ALL ON FUNCTIONS TO postgres;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA schema_superleme GRANT ALL ON FUNCTIONS TO zotonic;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA schema_superleme GRANT ALL ON TYPES TO postgres;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA schema_superleme GRANT ALL ON TYPES TO zotonic;
+EOSQL
+
 echo "PostgreSQL: Usuários e databases criados com sucesso!"
 echo "  - Usuário postgres: database superleme (owner)"
 echo "  - Usuário zotonic: database zotonic (owner)"
+echo "  - Schema schema_superleme criado com permissões configuradas"

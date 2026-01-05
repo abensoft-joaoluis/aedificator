@@ -30,7 +30,75 @@ RUN groupadd -g 1000 zotonic || true \
 # Set working directory
 WORKDIR /opt/zotonic
 
+# Create entrypoint script inline
+RUN cat > /usr/local/bin/docker-entrypoint.sh <<'ENTRYPOINT_EOF'
+#!/bin/bash
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo -e "${GREEN}[Aedificator] Verificando dependências do Zotonic...${NC}"
+
+# Patch rebar.config to include apps_user/*/* pattern (needed for superleme modules)
+if [ -f "/opt/zotonic/rebar.config" ]; then
+    if ! grep -q 'apps_user/\*/\*' /opt/zotonic/rebar.config; then
+        echo -e "${YELLOW}[Aedificator] Atualizando rebar.config para incluir apps_user/*/*...${NC}"
+        sed -i 's|{project_app_dirs, \["apps/\*", "apps_user/\*", "apps_user/\*/apps/\*"\]}|{project_app_dirs, ["apps/*", "apps_user/*", "apps_user/*/*", "apps_user/*/apps/*"]}|' /opt/zotonic/rebar.config
+        echo -e "${GREEN}[Aedificator] rebar.config atualizado! ✓${NC}"
+    fi
+fi
+
+# Check if we're in the zotonic directory
+if [ -d "/opt/zotonic/apps/zotonic_mod_base" ]; then
+    COTONIC_DIR="/opt/zotonic/apps/zotonic_mod_base/priv/lib/cotonic"
+    COTONIC_FETCH="/opt/zotonic/apps/zotonic_mod_base/cotonic-fetch.sh"
+
+    if [ ! -f "${COTONIC_DIR}/cotonic.js" ] || \
+       [ ! -f "${COTONIC_DIR}/cotonic-worker.js" ] || \
+       [ ! -f "${COTONIC_DIR}/cotonic-service-worker.js" ]; then
+
+        echo -e "${YELLOW}[Aedificator] Arquivos do Cotonic não encontrados. Baixando...${NC}"
+
+        if [ -f "${COTONIC_FETCH}" ]; then
+            cd /opt/zotonic/apps/zotonic_mod_base
+            bash "${COTONIC_FETCH}"
+            echo -e "${GREEN}[Aedificator] Cotonic baixado com sucesso!${NC}"
+        else
+            echo -e "${RED}[Aedificator] ERRO: Script cotonic-fetch.sh não encontrado!${NC}"
+            echo -e "${YELLOW}[Aedificator] Tentando download manual...${NC}"
+
+            mkdir -p /opt/zotonic/apps/zotonic_mod_base/priv/lib-src/cotonic/master
+            mkdir -p /opt/zotonic/apps/zotonic_mod_base/priv/lib/cotonic
+
+            cd /opt/zotonic/apps/zotonic_mod_base/priv/lib-src/cotonic/master
+
+            curl -#O https://raw.githubusercontent.com/cotonic/cotonic/master/cotonic.js
+            curl -#O https://raw.githubusercontent.com/cotonic/cotonic/master/cotonic-worker.js
+            curl -#O https://raw.githubusercontent.com/cotonic/cotonic/master/cotonic-service-worker.js
+
+            cp cotonic.js /opt/zotonic/apps/zotonic_mod_base/priv/lib/cotonic/
+            cp cotonic-worker.js /opt/zotonic/apps/zotonic_mod_base/priv/lib/cotonic/
+            cp cotonic-service-worker.js /opt/zotonic/apps/zotonic_mod_base/priv/lib/cotonic/
+
+            echo -e "${GREEN}[Aedificator] Cotonic baixado com sucesso (fallback)!${NC}"
+        fi
+    else
+        echo -e "${GREEN}[Aedificator] Arquivos do Cotonic já existem. ✓${NC}"
+    fi
+fi
+
+echo -e "${GREEN}[Aedificator] Iniciando comando: $@${NC}"
+exec "$@"
+ENTRYPOINT_EOF
+
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Expose ports
 EXPOSE 8000 8443
 
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["/bin/bash"]

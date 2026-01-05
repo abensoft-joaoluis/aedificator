@@ -78,6 +78,9 @@ class DockerManager:
             f"[success]Dockerfile do Superleme gerado em: {output_path}[/success]"
         )
         console.print(
+            f"[info]Entrypoint embutido no Dockerfile (heredoc)[/info]"
+        )
+        console.print(
             f"Versões configuradas: Erlang {erlang_version}, PostgreSQL {postgres_version}"
         )
 

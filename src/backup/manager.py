@@ -225,3 +225,70 @@ class BackupManager:
         console.print("[info]Restaurando backup localmente...[/info]")
         restore_cmd = f'sudo -u postgres pg_restore --verbose -d superleme "{backup_file}"'
         Executor.run_command(restore_cmd, zotonic_root, background=False, use_docker=False)
+
+    @staticmethod
+    def fix_database_permissions(zotonic_root, use_docker=True):
+        """Fix database schema permissions for the Zotonic user.
+
+        This is needed when starting Zotonic for the first time without restoring a backup,
+        because the schema is created by Zotonic but permissions aren't set automatically.
+        """
+        if not use_docker:
+            console.print("[warning]Correção de permissões disponível apenas no modo Docker.[/warning]")
+            return
+
+        console.print("[info]Corrigindo permissões do banco de dados...[/info]")
+
+        # Read DB user from zotonic_site.config template
+        zotonic_db_user = "postgres"  # Default fallback
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        template_path = os.path.join(current_dir, "..", "config", "templates", "superleme.config")
+
+        if os.path.exists(template_path):
+            try:
+                with open(template_path, 'r') as f:
+                    for line in f:
+                        if '{dbuser,' in line:
+                            # Extract value from {dbuser, "postgres"}
+                            parts = line.split('"')
+                            if len(parts) >= 2:
+                                zotonic_db_user = parts[1]
+                                break
+            except Exception:
+                pass
+
+        # Superuser for administrative operations
+        db_user = "postgres"
+
+        console.print(f"[info]DB Admin: {db_user}, Zotonic User: {zotonic_db_user}[/info]")
+
+        # Check if PostgreSQL container is running
+        console.print("[info]Verificando se o container PostgreSQL está rodando...[/info]")
+        check_cmd = "docker compose ps postgres | grep -q 'Up' && echo 'running' || echo 'stopped'"
+        result = Executor.run_command(check_cmd, zotonic_root, background=False, use_docker=False)
+
+        # Start PostgreSQL if not running
+        console.print("[info]Garantindo que PostgreSQL está ativo...[/info]")
+        Executor.run_command("docker compose up -d postgres", zotonic_root, background=False, use_docker=False)
+        console.print("[info]Aguardando PostgreSQL ficar pronto...[/info]")
+        Executor.run_command("sleep 3", zotonic_root, background=False, use_docker=False)
+
+        # Fix permissions on schema
+        console.print(f"[info]Aplicando permissões do schema para usuário: {zotonic_db_user}[/info]")
+
+        permissions_sql = f"""
+            GRANT USAGE ON SCHEMA schema_superleme TO {zotonic_db_user};
+            GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA schema_superleme TO {zotonic_db_user};
+            GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA schema_superleme TO {zotonic_db_user};
+            GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA schema_superleme TO {zotonic_db_user};
+            ALTER DEFAULT PRIVILEGES IN SCHEMA schema_superleme GRANT ALL ON TABLES TO {zotonic_db_user};
+            ALTER DEFAULT PRIVILEGES IN SCHEMA schema_superleme GRANT ALL ON SEQUENCES TO {zotonic_db_user};
+        """
+
+        Executor.run_command(
+            f'docker compose exec -T postgres psql -U {db_user} -d superleme -c "{permissions_sql}"',
+            zotonic_root, background=False, use_docker=False
+        )
+
+        console.print("[success]Permissões do banco de dados corrigidas com sucesso![/success]")
+        console.print("[info]O Zotonic agora deve funcionar corretamente.[/info]")

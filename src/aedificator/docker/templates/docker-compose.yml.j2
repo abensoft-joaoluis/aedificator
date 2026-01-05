@@ -31,7 +31,7 @@ services:
         condition: service_healthy
     environment:
       ZOTONIC_DBHOST: postgres
-      ZOTONIC_DBPORT: 15432
+      ZOTONIC_DBPORT: 5432
       ZOTONIC_DBUSER: postgres
       ZOTONIC_DBPASSWORD: abensoft
       ZOTONIC_DBDATABASE: superleme
@@ -44,7 +44,6 @@ services:
       - zotonic_build:/opt/zotonic/_build
     working_dir: /opt/zotonic
     user: "1000:1000"
-    entrypoint: ""
     command: ["/bin/bash"]
 {% endif %}
 

@@ -214,19 +214,25 @@ class Menu:
                 compose_path = os.path.join(zotonic_root, "docker-compose.yml")
                 DockerManager.generate_docker_compose(compose_path, stack_type='superleme')
 
+                console.print("[info]Limpando containers órfãos...[/info]")
+                Executor.run_command("docker compose down --remove-orphans", zotonic_root, background=False, use_docker=False)
+
                 console.print("[warning]Parando containers e removendo volumes Docker...[/warning]")
                 Executor.run_command("docker compose down --volumes --remove-orphans", zotonic_root, background=False, use_docker=False)
 
                 console.print("[info]Removendo volume zotonic_build explicitamente...[/info]")
                 Executor.run_command("docker volume rm zotonic_build 2>/dev/null || true", zotonic_root, background=False, use_docker=False)
 
-                console.print("[info]Criando volume com permissões corretas...[/info]")
-                Executor.run_command("docker compose run --rm --user root zotonic bash -c 'mkdir -p _build && chown -R 1000:1000 _build'", zotonic_root, background=False, use_docker=False)
-
-                console.print("[info]Executando clean build...[/info]")
-                cmd = "docker compose run --rm zotonic bash -c 'make clean && make'"
+                console.print("[info]Executando build (criando estrutura com permissões corretas)...[/info]")
+                cmd = (
+                    "docker compose run --rm --user root zotonic bash -c '"
+                    "mkdir -p _build/default/lib _build/default/plugins _build/default/checkouts && "
+                    "chown -R 1000:1000 _build && "
+                    "su zotonic -c \"make clean && make\""
+                    "'"
+                )
             else:
-                cmd = "rm -rf _build && make clean && make"
+                cmd = "rm -rf _build && make"
             Executor.run_command(cmd, zotonic_root, background=False, use_docker=False, docker_config=docker_config)
 
         elif choice == "3. Executar (debug mode)":
